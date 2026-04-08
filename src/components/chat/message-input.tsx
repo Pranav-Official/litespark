@@ -1,13 +1,16 @@
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Brain, Square } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 interface MessageInputProps {
 	value: string;
 	onChange: (value: string) => void;
-	onSubmit: (content: string) => void;
+	onSubmit: (content: string, thinking?: boolean) => void;
 	onStop: () => void;
 	isLoading: boolean;
 	disabled?: boolean;
+	thinkingEnabled?: boolean;
+	onThinkingToggle?: (enabled: boolean) => void;
+	showThinkingToggle?: boolean;
 }
 
 export default function MessageInput({
@@ -17,6 +20,9 @@ export default function MessageInput({
 	onStop,
 	isLoading,
 	disabled,
+	thinkingEnabled = false,
+	onThinkingToggle,
+	showThinkingToggle = false,
 }: MessageInputProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -35,7 +41,7 @@ export default function MessageInput({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		if (value.trim() && !isLoading) {
-			onSubmit(value.trim());
+			onSubmit(value.trim(), thinkingEnabled);
 		}
 	};
 
@@ -43,13 +49,29 @@ export default function MessageInput({
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			if (value.trim() && !isLoading) {
-				onSubmit(value.trim());
+				onSubmit(value.trim(), thinkingEnabled);
 			}
 		}
 	};
 
 	return (
 		<form onSubmit={handleSubmit} className="relative">
+			{showThinkingToggle && onThinkingToggle && (
+				<div className="mb-2 flex items-center justify-between">
+					<button
+						type="button"
+						onClick={() => onThinkingToggle(!thinkingEnabled)}
+						className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
+							thinkingEnabled
+								? "bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30"
+								: "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+						}`}
+					>
+						<Brain className="h-3.5 w-3.5" />
+						Thinking
+					</button>
+				</div>
+			)}
 			<textarea
 				ref={textareaRef}
 				value={value}

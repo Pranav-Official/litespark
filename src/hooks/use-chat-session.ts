@@ -2,11 +2,13 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { streamText } from "ai";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { localLLM } from "#/lib/local-llm";
 import { useChats, useUpdateChatTitle } from "./use-chats";
 import { useAddMessage, useMessages } from "./use-messages";
-import { useActiveProvider } from "./use-settings";
+import { useActiveProvider, useAllSettings } from "./use-settings";
+import { useThinkingParser } from "./use-thinking-parser";
 
 const PROVIDERS = {
 	openai: (apiKey: string) => createOpenAI({ apiKey }),
@@ -35,105 +37,134 @@ export function getAvailableModels(provider: string) {
 	return MODELS[provider] ?? MODELS.openai;
 }
 
-interface ChatMessage {
-	id: string;
-	role: "user" | "assistant";
-	content: string;
-}
-
 export function useChatSession(chatId: number | undefined) {
 	const { provider, apiKey, model } = useActiveProvider();
+	const { data: settingsMap } = useAllSettings();
 	const addMessage = useAddMessage();
 	const updateChatTitle = useUpdateChatTitle();
 	const { refetch: refetchChats } = useChats();
 	const { data: dbMessages } = useMessages(chatId);
 
-	const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(
-		null,
-	);
-	const [streamingContent, setStreamingContent] = useState("");
+	const inferenceMode = settingsMap?.inference_mode ?? "cloud";
+	const isLocal = inferenceMode === "local";
+
+	const modelConfig = localLLM.config;
+	const tagFormat = modelConfig?.thinking.tagFormat ?? "qwen";
+	const parser = useThinkingParser(tagFormat);
+
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const abortRef = useRef<AbortController | null>(null);
 	const streamingIdRef = useRef<string>("");
-	const streamingContentRef = useRef("");
+
+	// Track if we have a pending user message that hasn't hit DB yet
+	// This ensures instant UI feedback even if IndexedDB takes a few ms
+	const [optimisticUserMessage, setOptimisticUserMessage] = useState<{
+		content: string;
+	} | null>(null);
+
+	const parserRef = useRef(parser);
+	useEffect(() => {
+		parserRef.current = parser;
+	}, [parser]);
 
 	const sendMessage = useCallback(
-		async (content?: string) => {
+		async (content?: string, thinking?: boolean) => {
 			const messageContent = content || input;
-			if (!messageContent.trim() || !apiKey || !chatId) return;
-
-			const providerInstance =
-				PROVIDERS[provider as keyof typeof PROVIDERS]?.(apiKey);
-			if (!providerInstance) return;
+			if (!messageContent.trim() || !chatId) return;
+			if (!isLocal && !apiKey) return;
 
 			setIsLoading(true);
 			abortRef.current = new AbortController();
-			setStreamingContent("");
-			streamingContentRef.current = "";
+			parserRef.current.reset();
 
-			const userMessage: ChatMessage = {
-				id: crypto.randomUUID(),
-				role: "user",
-				content: messageContent.trim(),
-			};
-
-			setPendingMessage(userMessage);
 			setInput("");
-
-			const history = [
-				...(dbMessages ?? []).map((m) => ({
-					role: m.role as "user" | "assistant" | "system",
-					content: m.content,
-				})),
-				{ role: "user" as const, content: messageContent.trim() },
-			];
-
-			const assistantId = crypto.randomUUID();
-			streamingIdRef.current = assistantId;
+			setOptimisticUserMessage({ content: messageContent.trim() });
 
 			try {
-				const result = streamText({
-					model: providerInstance.languageModel(model),
-					messages: history,
-					abortSignal: abortRef.current.signal,
-				});
-
-				for await (const chunk of result.textStream) {
-					streamingContentRef.current += chunk;
-					flushSync(() => setStreamingContent(streamingContentRef.current));
-				}
-
-				const finalContent = streamingContentRef.current;
-
+				// 1. Save user message to DB
+				// useAddMessage updates the query cache instantly on success
 				await addMessage.mutateAsync({
 					chatId,
 					role: "user",
-					content: userMessage.content,
+					content: messageContent.trim(),
 				});
 
+				// Clear optimistic state now that it's in dbMessages
+				setOptimisticUserMessage(null);
+
+				// Use latest dbMessages for history + new user message
+				const history = [
+					...(dbMessages ?? []).map((m) => ({
+						role: m.role as "user" | "assistant" | "system",
+						content: m.content,
+					})),
+					{ role: "user" as const, content: messageContent.trim() },
+				];
+
+				streamingIdRef.current = crypto.randomUUID();
+				let finalContent = "";
+				let finalThinking = "";
+
+				// 2. Generate response
+				if (isLocal) {
+					await localLLM.generate(
+						history,
+						(chunk) => {
+							parserRef.current.feed(chunk);
+							flushSync(() => {});
+						},
+						abortRef.current.signal,
+						{ thinking },
+					);
+
+					finalThinking = parserRef.current.thinking;
+					finalContent = parserRef.current.message;
+				} else {
+					const providerInstance =
+						PROVIDERS[provider as keyof typeof PROVIDERS]?.(apiKey);
+					if (!providerInstance) return;
+
+					const result = streamText({
+						model: providerInstance.languageModel(model),
+						messages: history,
+						abortSignal: abortRef.current.signal,
+					});
+
+					for await (const chunk of result.textStream) {
+						parserRef.current.feed(chunk);
+						flushSync(() => {});
+					}
+					finalThinking = parserRef.current.thinking;
+					finalContent = parserRef.current.message;
+				}
+
+				// 3. Save assistant message to DB
 				await addMessage.mutateAsync({
 					chatId,
 					role: "assistant",
 					content: finalContent,
+					thinking: finalThinking || undefined,
 				});
 
-				setPendingMessage(null);
-				setStreamingContent("");
-				streamingContentRef.current = "";
+				// Clear parser immediately after saving
+				parserRef.current.reset();
 
+				// 4. Update chat title if this was the first message
 				const chatsResult = await refetchChats();
 				const currentChat = chatsResult.data?.find((c) => c.id === chatId);
 				if (currentChat && currentChat.title === "New Chat") {
+					const titleWords = messageContent.trim().split(" ");
 					const title =
-						userMessage.content.split(" ").slice(0, 5).join(" ") +
-						(userMessage.content.split(" ").length > 5 ? "..." : "");
+						titleWords.slice(0, 5).join(" ") +
+						(titleWords.length > 5 ? "..." : "");
 					updateChatTitle.mutate({ chatId, title });
 				}
 			} catch (error) {
 				if ((error as Error).name !== "AbortError") {
 					console.error("Chat error:", error);
 				}
+				setOptimisticUserMessage(null);
 			} finally {
 				setIsLoading(false);
 				abortRef.current = null;
@@ -145,52 +176,73 @@ export function useChatSession(chatId: number | undefined) {
 			chatId,
 			provider,
 			model,
-			dbMessages,
 			addMessage,
 			updateChatTitle,
 			refetchChats,
+			isLocal,
+			dbMessages,
 		],
 	);
 
 	const stop = useCallback(() => {
-		abortRef.current?.abort();
-		setIsLoading(false);
-		if (streamingContentRef.current) {
-			setPendingMessage(null);
-			setStreamingContent("");
-			streamingContentRef.current = "";
+		if (isLocal) {
+			localLLM.stop();
+		} else {
+			abortRef.current?.abort();
 		}
-	}, []);
+
+		setIsLoading(false);
+
+		// If we stopped mid-stream, save what we have to the DB
+		if (parserRef.current.thinking || parserRef.current.message) {
+			if (chatId) {
+				addMessage.mutate({
+					chatId,
+					role: "assistant",
+					content: parserRef.current.message,
+					thinking: parserRef.current.thinking || undefined,
+				});
+			}
+			parserRef.current.reset();
+		}
+	}, [isLocal, chatId, addMessage]);
 
 	const reload = useCallback(() => {
-		const allMessages = [
-			...(dbMessages ?? []).map((m) => ({
-				id: String(m.id),
-				role: m.role as "user" | "assistant",
-				content: m.content,
-			})),
-		];
+		const allMessages = dbMessages ?? [];
 		const lastUserMessage = allMessages.filter((m) => m.role === "user").pop();
 		if (lastUserMessage) {
 			sendMessage(lastUserMessage.content);
 		}
 	}, [dbMessages, sendMessage]);
 
+	// Format persisted messages for display
 	const persistedMessages = (dbMessages ?? []).map((m) => ({
 		id: String(m.id),
 		role: m.role as "user" | "assistant",
 		content: m.content,
+		thinking: m.thinking || undefined,
 	}));
 
+	// Combine all sources for final display array
 	const displayMessages = [
 		...persistedMessages,
-		...(pendingMessage ? [pendingMessage] : []),
-		...(streamingContent
+		...(optimisticUserMessage
+			? [
+					{
+						id: "optimistic-user",
+						role: "user" as const,
+						content: optimisticUserMessage.content,
+					},
+				]
+			: []),
+		...(parser.thinking || parser.message
 			? [
 					{
 						id: streamingIdRef.current,
 						role: "assistant" as const,
-						content: streamingContent,
+						content: parser.message,
+						thinking: parser.thinking || undefined,
+						isStreaming: true,
 					},
 				]
 			: []),
@@ -204,6 +256,7 @@ export function useChatSession(chatId: number | undefined) {
 		sendMessage,
 		stop,
 		reload,
-		hasKey: !!apiKey,
+		hasKey: isLocal || !!apiKey,
+		isLocal,
 	};
 }

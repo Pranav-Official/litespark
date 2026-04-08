@@ -12,6 +12,7 @@ export const messages = pgTable("messages", {
 	chatId: integer("chat_id").notNull(),
 	role: text().notNull(),
 	content: text().notNull(),
+	thinking: text(),
 	createdAt: timestamp("created_at").defaultNow(),
 });
 

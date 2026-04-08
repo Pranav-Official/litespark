@@ -21,6 +21,7 @@ export default defineConfig({
 				background_color: "#0a0a0a",
 				display: "standalone",
 				start_url: "/",
+				scope: "/",
 				icons: [
 					{
 						src: "/icon-192.png",
@@ -50,7 +51,39 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm,data}"],
-				maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
+				maximumFileSizeToCacheInBytes: 50 * 1024 * 1024,
+				navigateFallback: "/index.html",
+				navigateFallbackDenylist: [/^\/api\//],
+				runtimeCaching: [
+					{
+						urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
+						handler: "CacheFirst",
+						options: {
+							cacheName: "jsdelivr-cdn",
+							expiration: {
+								maxEntries: 50,
+								maxAgeSeconds: 60 * 60 * 24 * 365,
+							},
+							cacheableResponse: {
+								statuses: [0, 200],
+							},
+						},
+					},
+					{
+						urlPattern: /^https:\/\/huggingface\.co\/.*/i,
+						handler: "CacheFirst",
+						options: {
+							cacheName: "huggingface-models",
+							expiration: {
+								maxEntries: 20,
+								maxAgeSeconds: 60 * 60 * 24 * 365,
+							},
+							cacheableResponse: {
+								statuses: [0, 200],
+							},
+						},
+					},
+				],
 			},
 			devOptions: {
 				enabled: true,

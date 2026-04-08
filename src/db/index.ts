@@ -15,10 +15,19 @@ async function createClient() {
 
 	const wasmModule = await WebAssembly.compile(wasmBuffer);
 
-	return new PGlite("idb://litespark", {
+	const isInitialized = localStorage.getItem("pglite_initialized_litespark");
+
+	const client = new PGlite("idb://litespark", {
 		wasmModule,
-		fsBundle: dataBlob,
+		fsBundle: isInitialized ? undefined : dataBlob,
 	});
+
+	if (!isInitialized) {
+		await client.waitReady;
+		localStorage.setItem("pglite_initialized_litespark", "true");
+	}
+
+	return client;
 }
 
 let clientPromise: ReturnType<typeof createClient> | null = null;
@@ -50,9 +59,17 @@ export async function initDb() {
       chat_id INTEGER NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      thinking TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+
+	// Migration: add thinking column if it doesn't exist
+	try {
+		await db.execute(`ALTER TABLE messages ADD COLUMN thinking TEXT;`);
+	} catch (e) {
+		// Ignore if column already exists
+	}
 	await db.execute(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

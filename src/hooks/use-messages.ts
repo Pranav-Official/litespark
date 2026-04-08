@@ -26,18 +26,26 @@ export function useAddMessage() {
 			chatId,
 			role,
 			content,
+			thinking,
 		}: {
 			chatId: number;
 			role: string;
 			content: string;
+			thinking?: string;
 		}) => {
 			const result = await db
 				.insert(messages)
-				.values({ chatId, role, content })
+				.values({ chatId, role, content, thinking })
 				.returning();
 			return result[0];
 		},
-		onSuccess: (_, { chatId }) => {
+		onSuccess: (data, { chatId }) => {
+			// Update the cache immediately with the returned DB row
+			queryClient.setQueryData(["messages", chatId], (old: any[] = []) => [
+				...old,
+				data,
+			]);
+			// Also invalidate to ensure sync
 			queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
 		},
 	});

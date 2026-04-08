@@ -1,10 +1,12 @@
-import { PanelLeftOpen } from "lucide-react";
+import { AlertTriangle, Cpu, PanelLeftOpen } from "lucide-react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import MessageInput from "#/components/chat/message-input";
 import MessageList from "#/components/chat/message-list";
 import { useSidebar } from "#/context/sidebar-context";
 import { useChatSession } from "#/hooks/use-chat-session";
 import { useChats } from "#/hooks/use-chats";
+import { useLocalLLM } from "#/hooks/use-local-llm";
 
 export default function ChatPage() {
 	const { chatId } = useParams<{ chatId: string }>();
@@ -12,16 +14,21 @@ export default function ChatPage() {
 	const { openSidebar } = useSidebar();
 	const { data: chats } = useChats();
 	const currentChat = chats?.find((c) => c.id === id);
+	const { info, isLocal, activeModel } = useLocalLLM();
+	const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
 	const { messages, input, setInput, isLoading, sendMessage, stop, hasKey } =
 		useChatSession(id);
 
-	const handleSubmit = (content: string) => {
-		sendMessage(content);
+	const handleSubmit = (content: string, thinking?: boolean) => {
+		sendMessage(content, thinking);
 	};
 
+	const modelNotReady = isLocal && info.status !== "ready";
+	const showThinkingToggle = isLocal && activeModel?.thinking.enabled;
+
 	return (
-		<div className="flex flex-1 flex-col">
+		<div className="flex flex-1 flex-col overflow-hidden">
 			<div className="flex items-center gap-3 border-b border-zinc-800 px-3 py-2 lg:hidden">
 				<button
 					type="button"
@@ -35,13 +42,35 @@ export default function ChatPage() {
 				</h2>
 			</div>
 
-			{!hasKey && (
+			{!hasKey && !isLocal && (
 				<div className="border-b border-zinc-800 bg-amber-950/30 px-4 py-2 text-center text-xs text-amber-300">
 					No API key configured.{" "}
 					<a href="/settings" className="underline hover:text-amber-200">
 						Go to Settings
 					</a>{" "}
 					to add your key.
+				</div>
+			)}
+
+			{isLocal && info.status === "ready" && (
+				<div className="border-b border-zinc-800 bg-emerald-950/20 px-4 py-2 text-center text-xs text-emerald-400">
+					<span className="inline-flex items-center gap-1.5">
+						<Cpu className="h-3 w-3" />
+						Running locally on device
+					</span>
+				</div>
+			)}
+
+			{modelNotReady && (
+				<div className="border-b border-zinc-800 bg-amber-950/20 px-4 py-2 text-center text-xs text-amber-400">
+					<span className="inline-flex items-center gap-1.5">
+						<AlertTriangle className="h-3 w-3" />
+						Model not loaded.{" "}
+						<a href="/settings" className="underline hover:text-amber-300">
+							Go to Settings
+						</a>{" "}
+						to {info.status === "downloaded" ? "load" : "download"} it.
+					</span>
 				</div>
 			)}
 
@@ -55,7 +84,10 @@ export default function ChatPage() {
 						onSubmit={handleSubmit}
 						onStop={stop}
 						isLoading={isLoading}
-						disabled={!hasKey}
+						disabled={!hasKey || modelNotReady}
+						thinkingEnabled={thinkingEnabled}
+						onThinkingToggle={setThinkingEnabled}
+						showThinkingToggle={showThinkingToggle}
 					/>
 				</div>
 			</div>
