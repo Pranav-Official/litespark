@@ -3,7 +3,6 @@ import {
 	Check,
 	ChevronDown,
 	Cpu,
-	Download,
 	Eye,
 	EyeOff,
 	Loader2,
@@ -38,7 +37,6 @@ export default function SettingsPage() {
 	const updateSetting = useUpdateSetting();
 	const {
 		info,
-		download,
 		load,
 		unload,
 		deleteModel,
@@ -53,25 +51,20 @@ export default function SettingsPage() {
 		cachedModelIds,
 	} = useLocalLLM();
 
-	const modelConfig = activeModel;
-
 	const [selectedProvider, setSelectedProvider] = useState(provider);
 	const [key, setKey] = useState(apiKey);
 	const [selectedModel, setSelectedModel] = useState(model);
-	// ... rest of state
 	const [showKey, setShowKey] = useState(false);
 	const [showProviderDropdown, setShowProviderDropdown] = useState(false);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
-	const [downloading, setDownloading] = useState(false);
 	const [loadingModel, setLoadingModel] = useState(false);
 	const [unloadingModel, setUnloadingModel] = useState(false);
 	const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
 	const models = getAvailableModels(selectedProvider);
-	const statusInfo = STATUS_LABELS[info.status] ?? STATUS_LABELS.idle;
 
 	const handleSave = async () => {
 		setSaving(true);
@@ -96,20 +89,6 @@ export default function SettingsPage() {
 	const selectModel = (m: string) => {
 		setSelectedModel(m);
 		setShowModelDropdown(false);
-	};
-
-	const handleDownload = async () => {
-		setDownloading(true);
-		setLoadError(null);
-		try {
-			await download((p) => {
-				if (p >= 100) setDownloading(false);
-			});
-		} catch (err) {
-			setLoadError((err as Error).message);
-		} finally {
-			setDownloading(false);
-		}
 	};
 
 	const handleLoadModel = async (modelId: string) => {
@@ -163,6 +142,7 @@ export default function SettingsPage() {
 						type="button"
 						onClick={() => navigate("/")}
 						className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+						aria-label="Go back to home"
 					>
 						<ArrowLeft className="h-4 w-4" />
 					</button>
@@ -171,10 +151,10 @@ export default function SettingsPage() {
 
 				<div className="space-y-6">
 					{/* Inference Mode Toggle */}
-					<div>
-						<span className="mb-3 block text-sm font-medium text-zinc-300">
+					<fieldset className="space-y-3">
+						<legend className="text-sm font-medium text-zinc-300">
 							Inference Mode
-						</span>
+						</legend>
 						<div className="flex rounded-lg border border-zinc-700 bg-zinc-800/50 p-1">
 							<button
 								type="button"
@@ -184,6 +164,7 @@ export default function SettingsPage() {
 										? "bg-zinc-100 text-zinc-900 shadow-sm"
 										: "text-zinc-400 hover:text-zinc-200"
 								}`}
+								aria-pressed={!isLocal}
 							>
 								<WifiOff className="h-4 w-4" />
 								Cloud
@@ -196,12 +177,13 @@ export default function SettingsPage() {
 										? "bg-zinc-100 text-zinc-900 shadow-sm"
 										: "text-zinc-400 hover:text-zinc-200"
 								}`}
+								aria-pressed={isLocal}
 							>
 								<Cpu className="h-4 w-4" />
 								Local
 							</button>
 						</div>
-					</div>
+					</fieldset>
 
 					{/* Local LLM Section */}
 					{isLocal && (
@@ -210,7 +192,8 @@ export default function SettingsPage() {
 								<span className="text-sm font-medium text-zinc-300">
 									Local Models
 								</span>
-								<div className="flex rounded-lg border border-zinc-700 bg-zinc-800/50 p-0.5">
+								<fieldset className="flex rounded-lg border border-zinc-700 bg-zinc-800/50 p-0.5">
+									<legend className="sr-only">Device selection</legend>
 									<button
 										type="button"
 										onClick={() => handleDeviceChange("webgpu")}
@@ -220,6 +203,7 @@ export default function SettingsPage() {
 												? "bg-zinc-100 text-zinc-900 shadow-sm rounded-md"
 												: "text-zinc-400 hover:text-zinc-200"
 										} disabled:opacity-30 disabled:cursor-not-allowed`}
+										aria-pressed={device === "webgpu"}
 									>
 										WebGPU
 									</button>
@@ -231,20 +215,24 @@ export default function SettingsPage() {
 												? "bg-zinc-100 text-zinc-900 shadow-sm rounded-md"
 												: "text-zinc-400 hover:text-zinc-200"
 										}`}
+										aria-pressed={device === "wasm"}
 									>
 										CPU
 									</button>
-								</div>
+								</fieldset>
 							</div>
 
 							{loadError && (
-								<div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+								<div
+									className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
+									role="alert"
+								>
 									<X className="h-3.5 w-3.5 shrink-0" />
 									<span className="flex-1 truncate">{loadError}</span>
 								</div>
 							)}
 
-							<div className="grid gap-3">
+							<ul className="grid gap-3">
 								{availableModels.map((m) => {
 									const isSelected = activeModel?.id === m.id;
 									const isEngineActive = info.modelId === m.id;
@@ -253,7 +241,7 @@ export default function SettingsPage() {
 									const statusLabel = STATUS_LABELS[currentStatus];
 
 									return (
-										<div
+										<li
 											key={m.id}
 											className={`relative overflow-hidden rounded-xl border p-4 transition-all ${
 												isSelected
@@ -301,7 +289,13 @@ export default function SettingsPage() {
 														<span>Downloading...</span>
 														<span>{info.progress}%</span>
 													</div>
-													<div className="h-1 overflow-hidden rounded-full bg-zinc-800">
+													<div
+														className="h-1 overflow-hidden rounded-full bg-zinc-800"
+														role="progressbar"
+														aria-valuenow={info.progress}
+														aria-valuemin={0}
+														aria-valuemax={100}
+													>
 														<div
 															className="h-full bg-blue-500 transition-all duration-300"
 															style={{ width: `${info.progress}%` }}
@@ -324,6 +318,7 @@ export default function SettingsPage() {
 														onClick={handleUnloadModel}
 														disabled={unloadingModel}
 														className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 py-1.5 text-xs font-medium text-zinc-300 transition-all hover:bg-zinc-700"
+														aria-label={`Unload ${m.displayName}`}
 													>
 														{unloadingModel ? (
 															<Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -337,9 +332,11 @@ export default function SettingsPage() {
 														onClick={() => handleLoadModel(m.id)}
 														disabled={
 															loadingModel ||
-															(isEngineActive && currentStatus === "downloading")
+															(isEngineActive &&
+																currentStatus === "downloading")
 														}
 														className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 py-1.5 text-xs font-medium text-zinc-900 transition-all hover:bg-white disabled:opacity-50"
+														aria-label={`Load ${m.displayName}`}
 													>
 														{isEngineActive && loadingModel ? (
 															<Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -358,6 +355,7 @@ export default function SettingsPage() {
 															(isEngineActive && currentStatus === "ready")
 														}
 														className="flex items-center justify-center rounded-lg border border-red-800/50 bg-red-950/20 px-3 py-1.5 text-xs font-medium text-red-400 transition-all hover:bg-red-950/40 disabled:opacity-30"
+														aria-label={`Delete ${m.displayName} from cache`}
 													>
 														{deletingModelId === m.id ? (
 															<Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -367,10 +365,10 @@ export default function SettingsPage() {
 													</button>
 												)}
 											</div>
-										</div>
+										</li>
 									);
 								})}
-							</div>
+							</ul>
 						</div>
 					)}
 
@@ -378,7 +376,10 @@ export default function SettingsPage() {
 					{!isLocal && (
 						<>
 							<div>
-								<span className="mb-2 block text-sm font-medium text-zinc-300">
+								<span
+									id="provider-label"
+									className="mb-2 block text-sm font-medium text-zinc-300"
+								>
 									Provider
 								</span>
 								<div className="relative">
@@ -389,18 +390,26 @@ export default function SettingsPage() {
 											setShowModelDropdown(false);
 										}}
 										className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 transition-colors hover:border-zinc-600"
+										aria-expanded={showProviderDropdown}
+										aria-haspopup="listbox"
+										aria-labelledby="provider-label"
 									>
 										{PROVIDERS.find((p) => p.id === selectedProvider)?.name}
 										<ChevronDown className="h-4 w-4 text-zinc-500" />
 									</button>
 									{showProviderDropdown && (
-										<div className="absolute z-10 mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-xl">
+										<div
+											className="absolute z-10 mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-xl"
+											role="listbox"
+										>
 											{PROVIDERS.map((p) => (
 												<button
 													key={p.id}
 													type="button"
 													onClick={() => selectProvider(p.id)}
 													className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+													role="option"
+													aria-selected={selectedProvider === p.id}
 												>
 													{p.name}
 													{selectedProvider === p.id && (
@@ -414,7 +423,10 @@ export default function SettingsPage() {
 							</div>
 
 							<div>
-								<span className="mb-2 block text-sm font-medium text-zinc-300">
+								<span
+									id="api-key-label"
+									className="mb-2 block text-sm font-medium text-zinc-300"
+								>
 									API Key
 								</span>
 								<div className="relative">
@@ -424,11 +436,13 @@ export default function SettingsPage() {
 										onChange={(e) => setKey(e.target.value)}
 										placeholder="sk-..."
 										className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 pr-10 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-zinc-600 focus:bg-zinc-800"
+										aria-labelledby="api-key-label"
 									/>
 									<button
 										type="button"
 										onClick={() => setShowKey(!showKey)}
 										className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+										aria-label={showKey ? "Hide API key" : "Show API key"}
 									>
 										{showKey ? (
 											<EyeOff className="h-4 w-4" />
@@ -440,7 +454,10 @@ export default function SettingsPage() {
 							</div>
 
 							<div>
-								<span className="mb-2 block text-sm font-medium text-zinc-300">
+								<span
+									id="model-label"
+									className="mb-2 block text-sm font-medium text-zinc-300"
+								>
 									Model
 								</span>
 								<div className="relative">
@@ -451,18 +468,26 @@ export default function SettingsPage() {
 											setShowProviderDropdown(false);
 										}}
 										className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 transition-colors hover:border-zinc-600"
+										aria-expanded={showModelDropdown}
+										aria-haspopup="listbox"
+										aria-labelledby="model-label"
 									>
 										<span className="truncate">{selectedModel}</span>
 										<ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" />
 									</button>
 									{showModelDropdown && (
-										<div className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-xl">
+										<div
+											className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-xl"
+											role="listbox"
+										>
 											{models.map((m) => (
 												<button
 													key={m}
 													type="button"
 													onClick={() => selectModel(m)}
 													className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+													role="option"
+													aria-selected={selectedModel === m}
 												>
 													<span className="truncate">{m}</span>
 													{selectedModel === m && (

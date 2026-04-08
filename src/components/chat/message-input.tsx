@@ -66,6 +66,8 @@ export default function MessageInput({
 								? "bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30"
 								: "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
 						}`}
+						aria-pressed={thinkingEnabled}
+						aria-label="Toggle thinking mode"
 					>
 						<Brain className="h-3.5 w-3.5" />
 						Thinking
@@ -81,6 +83,7 @@ export default function MessageInput({
 				rows={1}
 				disabled={disabled}
 				className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-800/50 px-4 py-3 pr-12 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-zinc-600 focus:bg-zinc-800 disabled:opacity-50"
+				aria-label="Message input"
 			/>
 			<button
 				type="submit"
@@ -93,6 +96,7 @@ export default function MessageInput({
 							? "bg-zinc-100 text-zinc-900 hover:bg-white"
 							: "bg-zinc-700 text-zinc-500"
 				} disabled:opacity-50`}
+				aria-label={isLoading ? "Stop generating" : "Send message"}
 			>
 				{isLoading ? (
 					<Square className="h-3.5 w-3.5" />

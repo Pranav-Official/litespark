@@ -39,19 +39,52 @@ export function useUpdateSetting() {
 				set: { value },
 			});
 		},
-		onSuccess: () => {
+		onMutate: async ({ key, value }) => {
+			await queryClient.cancelQueries({ queryKey: ["settings"] });
+			const previousSettings = queryClient.getQueryData<Record<string, string>>(
+				["settings"],
+			);
+			queryClient.setQueryData<Record<string, string>>(["settings"], (old) => {
+				if (old && typeof old === "object") {
+					return { ...old, [key]: value };
+				}
+				return old;
+			});
+			return { previousSettings };
+		},
+		onError: (_err, _newSetting, context) => {
+			queryClient.setQueryData(["settings"], context?.previousSettings);
+		},
+		onSettled: () => {
 			queryClient.invalidateQueries({ queryKey: ["settings"] });
 		},
 	});
 }
 
 export function useActiveProvider() {
-	const { data: settingsMap } = useAllSettings();
+	const { data } = useQuery({
+		queryKey: ["settings"],
+		queryFn: async () => {
+			const result = await db.select().from(settings);
+			return result.reduce<Record<string, string>>((acc, row) => {
+				acc[row.key] = row.value;
+				return acc;
+			}, {});
+		},
+		select: (settingsMap) => ({
+			provider: settingsMap.active_provider ?? "openai",
+			apiKey: settingsMap.api_key ?? "",
+			model: settingsMap.model ?? "gpt-4o",
+			hasKey: !!settingsMap.api_key,
+		}),
+	});
 
-	return {
-		provider: settingsMap?.active_provider ?? "openai",
-		apiKey: settingsMap?.api_key ?? "",
-		model: settingsMap?.model ?? "gpt-4o",
-		hasKey: !!settingsMap?.api_key,
-	};
+	return (
+		data ?? {
+			provider: "openai",
+			apiKey: "",
+			model: "gpt-4o",
+			hasKey: false,
+		}
+	);
 }

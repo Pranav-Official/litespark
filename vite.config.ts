@@ -11,7 +11,7 @@ export default defineConfig({
 		tailwindcss(),
 		viteReact(),
 		VitePWA({
-			registerType: "autoUpdate",
+			registerType: "prompt",
 			includeAssets: ["**/*.{ico,png,svg}"],
 			manifest: {
 				name: "Chat",

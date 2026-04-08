@@ -34,6 +34,7 @@ export default function ChatPage() {
 					type="button"
 					onClick={openSidebar}
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+					aria-label="Open sidebar"
 				>
 					<PanelLeftOpen className="h-5 w-5" />
 				</button>

@@ -25,6 +25,7 @@ export default function HomePage() {
 					type="button"
 					onClick={handleNewChat}
 					className="rounded-lg bg-zinc-100 px-6 py-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+					aria-label="Start a new chat"
 				>
 					New Chat
 				</button>

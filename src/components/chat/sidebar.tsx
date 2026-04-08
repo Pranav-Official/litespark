@@ -51,6 +51,7 @@ export default function Sidebar() {
 					type="button"
 					onClick={isMobile ? closeSidebar : toggleSidebar}
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+					aria-label={isMobile ? "Close sidebar" : "Toggle sidebar"}
 				>
 					{isMobile ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
 				</button>
@@ -58,13 +59,17 @@ export default function Sidebar() {
 					type="button"
 					onClick={handleNewChat}
 					className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+					aria-label="Create new chat"
 				>
 					<MessageSquare className="h-4 w-4" />
 					<span className="hidden sm:inline">New Chat</span>
 				</button>
 			</div>
 
-			<nav className="flex-1 overflow-y-auto px-2 py-1">
+			<nav
+				className="flex-1 overflow-y-auto px-2 py-1"
+				aria-label="Chat history"
+			>
 				{chats?.map((chat) => {
 					const isCurrentChat = location.pathname === `/chat/${chat.id}`;
 					return (
@@ -77,6 +82,7 @@ export default function Sidebar() {
 									? "bg-zinc-800 text-zinc-100"
 									: "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
 							}`}
+							aria-current={isCurrentChat ? "page" : undefined}
 						>
 							<MessageSquare className="h-4 w-4 shrink-0" />
 							<span className="flex-1 truncate">{chat.title}</span>
@@ -84,6 +90,7 @@ export default function Sidebar() {
 								type="button"
 								onClick={(e) => handleDelete(e, chat.id, isCurrentChat)}
 								className="shrink-0 rounded p-0.5 text-zinc-500 opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
+								aria-label={`Delete chat: ${chat.title}`}
 							>
 								<Trash2 className="h-3.5 w-3.5" />
 							</button>

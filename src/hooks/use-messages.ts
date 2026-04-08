@@ -1,7 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { asc, eq } from "drizzle-orm";
 import { db } from "#/db";
 import { messages } from "#/db/schema";
+
+export type MessageRow = typeof messages.$inferSelect;
 
 export function useMessages(chatId: number | undefined) {
 	return useQuery({
@@ -15,6 +22,7 @@ export function useMessages(chatId: number | undefined) {
 				.orderBy(asc(messages.createdAt));
 		},
 		enabled: !!chatId,
+		placeholderData: keepPreviousData,
 	});
 }
 
@@ -41,10 +49,10 @@ export function useAddMessage() {
 		},
 		onSuccess: (data, { chatId }) => {
 			// Update the cache immediately with the returned DB row
-			queryClient.setQueryData(["messages", chatId], (old: any[] = []) => [
-				...old,
-				data,
-			]);
+			queryClient.setQueryData<MessageRow[]>(
+				["messages", chatId],
+				(old = []) => [...old, data],
+			);
 			// Also invalidate to ensure sync
 			queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
 		},
@@ -58,8 +66,25 @@ export function useDeleteMessagesByChatId() {
 		mutationFn: async (chatId: number) => {
 			await db.delete(messages).where(eq(messages.chatId, chatId));
 		},
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["messages"] });
+		onMutate: async (chatId) => {
+			await queryClient.cancelQueries({ queryKey: ["messages", chatId] });
+			const previousMessages = queryClient.getQueryData<MessageRow[]>([
+				"messages",
+				chatId,
+			]);
+			queryClient.setQueryData<MessageRow[]>(["messages", chatId], []);
+			return { previousMessages, chatId };
+		},
+		onError: (_err, _chatId, context) => {
+			if (context?.chatId) {
+				queryClient.setQueryData(
+					["messages", context.chatId],
+					context.previousMessages,
+				);
+			}
+		},
+		onSettled: (_, __, chatId) => {
+			queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
 		},
 	});
 }

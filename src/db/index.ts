@@ -67,7 +67,7 @@ export async function initDb() {
 	// Migration: add thinking column if it doesn't exist
 	try {
 		await db.execute(`ALTER TABLE messages ADD COLUMN thinking TEXT;`);
-	} catch (e) {
+	} catch (_e) {
 		// Ignore if column already exists
 	}
 	await db.execute(`

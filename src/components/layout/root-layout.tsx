@@ -1,6 +1,7 @@
 import { PanelLeftOpen } from "lucide-react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "#/components/chat/sidebar";
+import ReloadPrompt from "#/components/pwa/reload-prompt";
 import { useSidebar } from "#/context/sidebar-context";
 
 export default function RootLayout() {
@@ -47,6 +48,7 @@ export default function RootLayout() {
 
 				<Outlet />
 			</main>
+			<ReloadPrompt />
 		</div>
 	);
 }

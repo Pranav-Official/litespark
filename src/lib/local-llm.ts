@@ -150,7 +150,7 @@ class LocalLLM {
 				local_files_only: true,
 			});
 			return true;
-		} catch (e) {
+		} catch (_e) {
 			return false;
 		}
 	}
