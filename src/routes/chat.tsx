@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import MessageInput from "#/components/chat/message-input";
 import MessageList from "#/components/chat/message-list";
+import ModelSelector from "#/components/chat/model-selector";
 import { useSidebar } from "#/context/sidebar-context";
 import { useChatSession } from "#/hooks/use-chat-session";
 import { useChats } from "#/hooks/use-chats";
@@ -29,16 +30,17 @@ export default function ChatPage() {
 
 	return (
 		<div className="flex flex-1 flex-col overflow-hidden">
-			<div className="flex items-center gap-3 border-b border-zinc-800 px-3 py-2 lg:hidden">
+			<div className="flex items-center gap-3 border-b border-zinc-800 px-3 py-2">
 				<button
 					type="button"
 					onClick={openSidebar}
-					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 lg:hidden"
 					aria-label="Open sidebar"
 				>
 					<PanelLeftOpen className="h-5 w-5" />
 				</button>
-				<h2 className="flex-1 truncate text-sm font-medium text-zinc-100">
+				<ModelSelector />
+				<h2 className="flex-1 truncate text-sm font-medium text-zinc-100 text-right lg:hidden">
 					{currentChat?.title ?? "Chat"}
 				</h2>
 			</div>

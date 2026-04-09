@@ -10,7 +10,7 @@ export default function RootLayout() {
 	const isChatPage = location.pathname.startsWith("/chat/");
 
 	return (
-		<div className="flex h-screen bg-zinc-950 text-zinc-100">
+		<div className="flex h-dvh bg-zinc-950 text-zinc-100">
 			{isMobile && !collapsed && (
 				<div
 					className="fixed inset-0 z-40 bg-black/60"
