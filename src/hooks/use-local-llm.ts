@@ -43,7 +43,7 @@ export function useLocalLLM() {
 
 	useEffect(() => {
 		checkAllCaches();
-	}, [info.status, checkAllCaches]);
+	}, [checkAllCaches]);
 
 	useEffect(() => {
 		localLLM.setModel(savedModelId);

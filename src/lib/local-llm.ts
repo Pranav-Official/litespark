@@ -327,7 +327,7 @@ class LocalLLM {
 		onChunk: (text: string) => void,
 		signal?: AbortSignal,
 		options?: GenerateOptions,
-	) {
+	): Promise<{ text: string; usage: { totalTokens: number } }> {
 		if (!this.isReady || !this.processor || !this.model) {
 			throw new Error("Model not loaded");
 		}
@@ -446,14 +446,15 @@ class LocalLLM {
 		};
 
 		try {
-			await this.model.generate(generationOptions);
+			const outputs = await this.model.generate(generationOptions);
+			const totalTokens = outputs[0]?.length ?? 0;
 
 			isDone = true;
-			return fullText;
+			return { text: fullText, usage: { totalTokens } };
 		} catch (err) {
 			if (internalSignal.aborted || signal?.aborted) {
 				isDone = true;
-				return fullText;
+				return { text: fullText, usage: { totalTokens: 0 } };
 			}
 			throw err;
 		} finally {

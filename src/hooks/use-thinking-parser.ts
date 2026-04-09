@@ -18,20 +18,21 @@ const TAG_CONFIGS: Record<
 	},
 	gemma: {
 		start: "<|channel>thought\n",
-		end: ["<channel|>"],
+		end: ["<channel|>", "<turn|>"],
 		suffix: "<turn|>",
 	},
 };
 
 function cleanMessage(text: string, suffix?: string): string {
-	let result = text;
-	if (suffix) {
-		result = result.replace(
-			new RegExp(suffix.replace(/[|]/g, "\\$&"), "g"),
-			"",
-		);
+	if (!suffix) return text;
+
+	let processedText = text.trimEnd();
+
+	if (processedText.endsWith(suffix)) {
+		processedText = processedText.slice(0, -suffix.length);
 	}
-	return result;
+
+	return processedText.trimEnd();
 }
 
 export function useThinkingParser(tagFormat: ThinkingTagFormat) {
@@ -41,7 +42,8 @@ export function useThinkingParser(tagFormat: ThinkingTagFormat) {
 
 	const feed = useCallback(
 		(chunk: string) => {
-			if (!chunk) return;
+			// Return empty if no chunk
+			if (!chunk) return { thinking: "", message: "" };
 
 			rawRef.current += chunk;
 			const raw = rawRef.current;
@@ -91,6 +93,9 @@ export function useThinkingParser(tagFormat: ThinkingTagFormat) {
 
 			setThinking(nextThinking);
 			setMessage(nextMessage);
+
+			// FIX: Return the parsed values synchronously
+			return { thinking: nextThinking, message: nextMessage };
 		},
 		[tagFormat],
 	);

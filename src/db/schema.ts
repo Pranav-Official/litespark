@@ -13,6 +13,9 @@ export const messages = pgTable("messages", {
 	role: text().notNull(),
 	content: text().notNull(),
 	thinking: text(),
+	model: text(),
+	totalTokens: integer("total_tokens"),
+	timeTakenMs: integer("time_taken_ms"),
 	createdAt: timestamp("created_at").defaultNow(),
 });
 
