@@ -8,7 +8,13 @@ const TAG_CONFIGS: Record<
 > = {
 	qwen: {
 		start: "<think>",
-		end: ["</think>", "</thought>", "<|endofthought|>", "<|im_end|>", "<|endoftext|>"],
+		end: [
+			"</think>",
+			"</thought>",
+			"<|endofthought|>",
+			"<|im_end|>",
+			"<|endoftext|>",
+		],
 	},
 	gemma: {
 		start: "<|channel>thought\n",
@@ -52,6 +58,9 @@ export function useThinkingParser(tagFormat: ThinkingTagFormat) {
 				}
 			}
 
+			let nextThinking = "";
+			let nextMessage = "";
+
 			if (thinkEndIdx !== -1) {
 				const beforeEnd = raw.substring(0, thinkEndIdx);
 				const afterEnd = raw.substring(thinkEndIdx + matchedEndTag.length);
@@ -59,26 +68,29 @@ export function useThinkingParser(tagFormat: ThinkingTagFormat) {
 
 				if (thinkStartIdx !== -1) {
 					const beforeStart = beforeEnd.substring(0, thinkStartIdx);
-					const thinkingPart = beforeEnd.substring(
+					nextThinking = beforeEnd.substring(
 						thinkStartIdx + config.start.length,
 					);
-					setThinking(thinkingPart);
-					setMessage(cleanMessage(beforeStart + afterEnd, config.suffix));
+					nextMessage = cleanMessage(beforeStart + afterEnd, config.suffix);
 				} else {
-					setThinking(beforeEnd);
-					setMessage(cleanMessage(afterEnd, config.suffix));
+					nextThinking = "";
+					nextMessage = cleanMessage(beforeEnd + afterEnd, config.suffix);
 				}
 			} else {
 				const thinkStartIdx = raw.indexOf(config.start);
 				if (thinkStartIdx !== -1) {
-					setThinking(raw.substring(thinkStartIdx + config.start.length));
-					setMessage(
-						cleanMessage(raw.substring(0, thinkStartIdx), config.suffix),
+					nextThinking = raw.substring(thinkStartIdx + config.start.length);
+					nextMessage = cleanMessage(
+						raw.substring(0, thinkStartIdx),
+						config.suffix,
 					);
 				} else {
-					setMessage(cleanMessage(raw, config.suffix));
+					nextMessage = cleanMessage(raw, config.suffix);
 				}
 			}
+
+			setThinking(nextThinking);
+			setMessage(nextMessage);
 		},
 		[tagFormat],
 	);

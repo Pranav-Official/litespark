@@ -38,6 +38,25 @@ const MODEL_CLASSES: Record<string, any> = {
 	Gemma4: Gemma4ForConditionalGeneration,
 };
 
+async function isModelInBrowserCache(modelId: string): Promise<boolean> {
+	try {
+		const cacheNames = await caches.keys();
+		for (const name of cacheNames) {
+			if (name.includes("transformers") || name.includes("huggingface")) {
+				const cache = await caches.open(name);
+				const requests = await cache.keys();
+				// Check if any request URL contains the modelId as a substring
+				if (requests.some((req) => req.url.includes(modelId))) {
+					return true;
+				}
+			}
+		}
+	} catch (err) {
+		console.error("Error checking browser cache:", err);
+	}
+	return false;
+}
+
 async function clearModelCache(modelId: string) {
 	const cacheKeys = await caches.keys();
 	for (const key of cacheKeys) {
@@ -143,9 +162,13 @@ class LocalLLM {
 	}
 
 	async isCached(modelId: string): Promise<boolean> {
+		// First check manually if any files are in the browser cache
+		const inCache = await isModelInBrowserCache(modelId);
+		if (inCache) return true;
+
 		try {
-			// Check if we can load the processor locally.
-			// This is a reliable way to check if the model is cached without downloading.
+			// Fallback: check if we can load the processor locally.
+			// This covers cases where transformers.js uses its own internal logic.
 			await AutoProcessor.from_pretrained(modelId, {
 				local_files_only: true,
 			});
@@ -352,12 +375,12 @@ class LocalLLM {
 				if (systemMsg) {
 					processedMessages = messages.map((m) =>
 						m.role === "system"
-							? { ...m, content: `${m.content}\n${thinkingInstruction}` }
+							? { ...m, content: `<think>${m.content}\n` }
 							: m,
 					);
 				} else {
 					processedMessages = [
-						{ role: "system", content: thinkingInstruction },
+						{ role: "system", content: "<think>" },
 						...messages,
 					];
 				}
@@ -371,10 +394,11 @@ class LocalLLM {
 				enable_thinking: enableThinking,
 			});
 		} else {
-			// For Qwen3.5, try chat_template_kwargs then fallback
+			// For Qwen3.5, try enable_thinking directly or via chat_template_kwargs, then fallback
 			try {
 				promptText = this.processor.apply_chat_template(processedMessages, {
 					add_generation_prompt: true,
+					enable_thinking: enableThinking,
 					chat_template_kwargs: { enable_thinking: enableThinking },
 				});
 			} catch {
@@ -383,9 +407,9 @@ class LocalLLM {
 				});
 			}
 
-			// Manually append <think> for Qwen3.5 since transformers.js doesn't support enable_thinking
+			// Manually append <think> for Qwen3.5 if the template didn't handle it
 			if (enableThinking && !promptText.includes("<think>")) {
-				promptText += "<think>";
+				promptText += "<think>\n";
 			}
 		}
 
@@ -416,8 +440,8 @@ class LocalLLM {
 			top_p: params?.top_p ?? 1.0,
 			top_k: params?.top_k ?? 20,
 			min_p: params?.min_p ?? 0.0,
-			presence_penalty: params?.presence_penalty ?? 0.0,
-			repetition_penalty: params?.repetition_penalty ?? 1.0,
+			presence_penalty: params?.presence_penalty ?? 1.5,
+			repetition_penalty: params?.repetition_penalty ?? 1.2,
 			streamer,
 		};
 

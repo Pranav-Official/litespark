@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import MarkdownRenderer from "./markdown-renderer";
 import ThinkingAccordion from "./thinking-accordion";
 
 interface Message {
@@ -85,14 +86,22 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 									}`}
 								>
 									{isStreaming && !hasContent ? (
-										<div className="flex items-center gap-2">
+										<div className="flex items-center gap-2 px-1 py-1">
 											<Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
-											<span className="text-zinc-400">
-												{hasThinking ? "Thinking..." : "Thinking..."}
+											<span className="text-xs text-zinc-500 italic">
+												Preparing response...
 											</span>
 										</div>
 									) : (
-										<p className="whitespace-pre-wrap">{message.content}</p>
+										<MarkdownRenderer
+											content={message.content}
+											isStreaming={isStreaming}
+											className={
+												message.role === "user"
+													? "[&_*]:text-white prose-invert"
+													: "prose-zinc"
+											}
+										/>
 									)}
 								</div>
 							</div>

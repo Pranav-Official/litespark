@@ -1,204 +1,77 @@
-Welcome to your new TanStack Start app! 
+# LiteSpark
 
-# Getting Started
+LiteSpark is a chat application that runs AI models locally in the browser using WebGPU or WASM, or connects to cloud providers like OpenAI, Gemini, and OpenRouter.
 
-To run this application:
+## installation
 
 ```bash
 bun install
-bun --bun run dev
 ```
 
-# Building For Production
-
-To build this application for production:
+## development
 
 ```bash
-bun --bun run build
+bun run dev
 ```
 
-## Testing
+Open http://localhost:3000 in your browser.
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+## production build
 
 ```bash
-bun --bun run test
+bun run build
 ```
 
-## Styling
-
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `bun install @tailwindcss/vite tailwindcss -D`
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
+Preview the build with:
 
 ```bash
-bun --bun run lint
-bun --bun run format
-bun --bun run check
+bun run preview
 ```
 
+## usage
 
+### Local models
 
-## Routing
+Switch to local inference mode in Settings. Select a device (WebGPU or CPU). Click "Load" on a model to download it to your browser cache. Once loaded, you can chat with the model entirely offline.
 
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
+Supported local models:
+- Qwen3.5 0.8B (~850 MB)
+- Qwen3.5 2B (~2.0 GB)
+- Gemma 4 E2B (~2.3 GB)
 
-### Adding A Route
+WebGPU requires a compatible browser (Chrome 113+, Edge 113+, or Firefox with WebGPU enabled).
 
-To add a new route to your application just add a new file in the `./src/routes` directory.
+### Cloud models
 
-TanStack will automatically generate the content of the route file for you.
+Switch to cloud inference mode in Settings. Enter an API key, select a provider, and choose a model.
 
-Now that you have two routes you can use a `Link` component to navigate between them.
+Cloud providers:
+- OpenAI (gpt-4o, gpt-4o-mini, o3-mini, o1)
+- Gemini (gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash)
+- OpenRouter (openai/gpt-4o, anthropic/claude-3.5-sonnet, google/gemini-2.5-flash)
 
-### Adding Links
+Example API key placeholder: `sk_test_51Mz...`
 
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
+### Thinking toggle
 
-```tsx
-import { Link } from "@tanstack/react-router";
+Some local models support reasoning. Toggle "thinking" in the message input when enabled to see the model's chain-of-thought process.
+
+## tech stack
+
+- React 19
+- TanStack Router (file-based routing)
+- Tailwind CSS v4
+- Vercel AI SDK
+- HuggingFace Transformers.js (local inference)
+- PGlite (browser SQLite via IndexedDB)
+
+## commands
+
+```bash
+bun run dev        # start dev server
+bun run build     # production build
+bun run preview   # preview build
+bun run lint     # biome lint
+bun run format   # biome format
+bun run check   # biome check
 ```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).

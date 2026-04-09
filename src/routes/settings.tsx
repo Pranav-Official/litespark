@@ -117,7 +117,15 @@ export default function SettingsPage() {
 		}
 	};
 
-	const handleDeleteModel = async (modelId: string) => {
+	const handleDeleteModel = async (modelId: string, modelName: string) => {
+		if (
+			!window.confirm(
+				`Are you sure you want to delete ${modelName} from your local cache? This will free up disk space, but you will need to download it again to use it.`,
+			)
+		) {
+			return;
+		}
+
 		setDeletingModelId(modelId);
 		try {
 			await deleteModel(modelId);
@@ -349,7 +357,9 @@ export default function SettingsPage() {
 												{isCached && (
 													<button
 														type="button"
-														onClick={() => handleDeleteModel(m.id)}
+														onClick={() =>
+															handleDeleteModel(m.id, m.displayName)
+														}
 														disabled={
 															!!deletingModelId ||
 															(isEngineActive && currentStatus === "ready")

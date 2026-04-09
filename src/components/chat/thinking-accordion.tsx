@@ -1,5 +1,6 @@
 import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { useState } from "react";
+import MarkdownRenderer from "./markdown-renderer";
 
 interface ThinkingAccordionProps {
 	thinking: string;
@@ -37,12 +38,11 @@ export default function ThinkingAccordion({
 			</button>
 			{isOpen && (
 				<div className="border-t border-zinc-700/50 px-4 py-3">
-					<p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
-						{thinking}
-						{isStreaming && (
-							<span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-zinc-400" />
-						)}
-					</p>
+					<MarkdownRenderer
+						content={thinking}
+						isStreaming={isStreaming}
+						className="text-xs text-zinc-400 opacity-80"
+					/>
 				</div>
 			)}
 		</div>
