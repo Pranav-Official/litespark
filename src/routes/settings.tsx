@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAvailableModels } from "#/hooks/use-chat-session";
 import { useLocalLLM } from "#/hooks/use-local-llm";
 import { useActiveProvider, useUpdateSetting } from "#/hooks/use-settings";
 
@@ -56,15 +55,12 @@ export default function SettingsPage() {
 	const [selectedModel, setSelectedModel] = useState(model);
 	const [showKey, setShowKey] = useState(false);
 	const [showProviderDropdown, setShowProviderDropdown] = useState(false);
-	const [showModelDropdown, setShowModelDropdown] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
 	const [loadingModel, setLoadingModel] = useState(false);
 	const [unloadingModel, setUnloadingModel] = useState(false);
 	const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
-
-	const models = getAvailableModels(selectedProvider);
 
 	const handleSave = async () => {
 		setSaving(true);
@@ -84,11 +80,6 @@ export default function SettingsPage() {
 		const p = PROVIDERS.find((p) => p.id === id);
 		if (p) setSelectedModel(p.defaultModel);
 		setShowProviderDropdown(false);
-	};
-
-	const selectModel = (m: string) => {
-		setSelectedModel(m);
-		setShowModelDropdown(false);
 	};
 
 	const handleLoadModel = async (modelId: string) => {
@@ -362,7 +353,8 @@ export default function SettingsPage() {
 														}
 														disabled={
 															!!deletingModelId ||
-															(isEngineActive && currentStatus === "ready") || loadingModel
+															(isEngineActive && currentStatus === "ready") ||
+															loadingModel
 														}
 														className="flex items-center justify-center rounded-lg border border-red-800/50 bg-red-950/20 px-3 py-1.5 text-xs font-medium text-red-400 transition-all hover:bg-red-950/40 disabled:opacity-30"
 														aria-label={`Delete ${m.displayName} from cache`}
@@ -397,7 +389,6 @@ export default function SettingsPage() {
 										type="button"
 										onClick={() => {
 											setShowProviderDropdown(!showProviderDropdown);
-											setShowModelDropdown(false);
 										}}
 										className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 transition-colors hover:border-zinc-600"
 										aria-expanded={showProviderDropdown}
@@ -468,46 +459,16 @@ export default function SettingsPage() {
 									id="model-label"
 									className="mb-2 block text-sm font-medium text-zinc-300"
 								>
-									Model
+									Model ID
 								</span>
-								<div className="relative">
-									<button
-										type="button"
-										onClick={() => {
-											setShowModelDropdown(!showModelDropdown);
-											setShowProviderDropdown(false);
-										}}
-										className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 transition-colors hover:border-zinc-600"
-										aria-expanded={showModelDropdown}
-										aria-haspopup="listbox"
-										aria-labelledby="model-label"
-									>
-										<span className="truncate">{selectedModel}</span>
-										<ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" />
-									</button>
-									{showModelDropdown && (
-										<div
-											className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-xl"
-											role="listbox"
-										>
-											{models.map((m) => (
-												<button
-													key={m}
-													type="button"
-													onClick={() => selectModel(m)}
-													className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
-													role="option"
-													aria-selected={selectedModel === m}
-												>
-													<span className="truncate">{m}</span>
-													{selectedModel === m && (
-														<Check className="h-3.5 w-3.5 shrink-0" />
-													)}
-												</button>
-											))}
-										</div>
-									)}
-								</div>
+								<input
+									type="text"
+									value={selectedModel}
+									onChange={(e) => setSelectedModel(e.target.value)}
+									placeholder="e.g. gpt-4o, claude-3-sonnet..."
+									className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-zinc-600 focus:bg-zinc-800"
+									aria-labelledby="model-label"
+								/>
 							</div>
 
 							<button
