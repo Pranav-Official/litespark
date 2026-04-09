@@ -35,15 +35,29 @@ export function useAddMessage() {
 			role,
 			content,
 			thinking,
+			model,
+			totalTokens,
+			timeTakenMs,
 		}: {
 			chatId: number;
 			role: string;
 			content: string;
 			thinking?: string;
+			model?: string;
+			totalTokens?: number;
+			timeTakenMs?: number;
 		}) => {
 			const result = await db
 				.insert(messages)
-				.values({ chatId, role, content, thinking })
+				.values({
+					chatId,
+					role,
+					content,
+					thinking,
+					model,
+					totalTokens,
+					timeTakenMs,
+				})
 				.returning();
 			return result[0];
 		},

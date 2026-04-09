@@ -9,6 +9,9 @@ interface Message {
 	role: "user" | "assistant";
 	content: string;
 	thinking?: string;
+	model?: string;
+	totalTokens?: number;
+	timeTakenMs?: number;
 	isStreaming?: boolean;
 }
 
@@ -104,6 +107,39 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 										/>
 									)}
 								</div>
+								{message.role === "assistant" &&
+									!isStreaming &&
+									message.model && (
+										<div className="mt-1.5 flex flex-wrap gap-x-2 px-1 text-[10px] text-zinc-500 opacity-60">
+											<span>{message.model}</span>
+											{message.totalTokens && (
+												<>
+													<span>•</span>
+													<span>{message.totalTokens} tokens</span>
+												</>
+											)}
+											{message.timeTakenMs && (
+												<>
+													<span>•</span>
+													<span>
+														{(message.timeTakenMs / 1000).toFixed(1)}s
+													</span>
+													{message.totalTokens && (
+														<>
+															<span>•</span>
+															<span>
+																{(
+																	message.totalTokens /
+																	(message.timeTakenMs / 1000)
+																).toFixed(1)}{" "}
+																tok/s
+															</span>
+														</>
+													)}
+												</>
+											)}
+										</div>
+									)}
 							</div>
 						</div>
 					);

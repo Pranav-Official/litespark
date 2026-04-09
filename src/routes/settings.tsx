@@ -315,7 +315,7 @@ export default function SettingsPage() {
 											{isEngineActive && currentStatus === "loading" && (
 												<div className="mt-3 flex items-center gap-2 text-[10px] text-zinc-400">
 													<Loader2 className="h-3 w-3 animate-spin" />
-													Loading into memory...
+													Downloading missing files and loading into memory...
 												</div>
 											)}
 
@@ -343,7 +343,7 @@ export default function SettingsPage() {
 															(isEngineActive &&
 																currentStatus === "downloading")
 														}
-														className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 py-1.5 text-xs font-medium text-zinc-900 transition-all hover:bg-white disabled:opacity-50"
+														className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 py-1.5 text-xs font-medium text-zinc-900 transition-all hover:bg-white disabled:opacity-50 disabled:pointer-none:"
 														aria-label={`Load ${m.displayName}`}
 													>
 														{isEngineActive && loadingModel ? (
@@ -362,7 +362,7 @@ export default function SettingsPage() {
 														}
 														disabled={
 															!!deletingModelId ||
-															(isEngineActive && currentStatus === "ready")
+															(isEngineActive && currentStatus === "ready") || loadingModel
 														}
 														className="flex items-center justify-center rounded-lg border border-red-800/50 bg-red-950/20 px-3 py-1.5 text-xs font-medium text-red-400 transition-all hover:bg-red-950/40 disabled:opacity-30"
 														aria-label={`Delete ${m.displayName} from cache`}

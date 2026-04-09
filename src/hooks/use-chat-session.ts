@@ -85,7 +85,7 @@ export function useChatSession(chatId: number | undefined) {
 				// 1. Save user message to DB
 				// useAddMessage updates the query cache instantly on success
 				await addMessage.mutateAsync({
-					chatId,
+					chatId: chatId as number,
 					role: "user",
 					content: messageContent.trim(),
 				});
@@ -105,21 +105,28 @@ export function useChatSession(chatId: number | undefined) {
 				streamingIdRef.current = crypto.randomUUID();
 				let finalContent = "";
 				let finalThinking = "";
+				let totalTokens = 0;
+				let timeTakenMs = 0;
+				const startTime = performance.now();
 
 				// 2. Generate response
 				if (isLocal) {
-					await localLLM.generate(
+					const response = await localLLM.generate(
 						history,
 						(chunk) => {
-							parserRef.current.feed(chunk);
+							const parsed = parserRef.current.feed(chunk);
+							if (parsed) {
+								finalThinking = parsed.thinking;
+								finalContent = parsed.message;
+							}
 							flushSync(() => {});
 						},
 						abortRef.current.signal,
 						{ thinking },
 					);
 
-					finalThinking = parserRef.current.thinking;
-					finalContent = parserRef.current.message;
+					totalTokens = response.usage.totalTokens;
+					timeTakenMs = Math.round(performance.now() - startTime);
 				} else {
 					const providerInstance =
 						PROVIDERS[provider as keyof typeof PROVIDERS]?.(apiKey);
@@ -132,19 +139,31 @@ export function useChatSession(chatId: number | undefined) {
 					});
 
 					for await (const chunk of result.textStream) {
-						parserRef.current.feed(chunk);
+						const parsed = parserRef.current.feed(chunk);
+						if (parsed) {
+							finalThinking = parsed.thinking;
+							finalContent = parsed.message;
+						}
 						flushSync(() => {});
 					}
-					finalThinking = parserRef.current.thinking;
-					finalContent = parserRef.current.message;
+
+					const usage = await result.usage;
+					totalTokens = usage.totalTokens ?? 0;
+					timeTakenMs = Math.round(performance.now() - startTime);
 				}
 
 				// 3. Save assistant message to DB
+				console.log("FINAL CONTENT TO SAVE:", finalContent);
 				await addMessage.mutateAsync({
-					chatId,
+					chatId: chatId as number,
 					role: "assistant",
 					content: finalContent,
 					thinking: finalThinking || undefined,
+					model: isLocal
+						? (localLLM.config?.displayName ?? "Local Model")
+						: model,
+					totalTokens: totalTokens || undefined,
+					timeTakenMs: timeTakenMs || undefined,
 				});
 
 				// Clear parser immediately after saving
@@ -152,13 +171,15 @@ export function useChatSession(chatId: number | undefined) {
 
 				// 4. Update chat title if this was the first message
 				const chatsResult = await refetchChats();
-				const currentChat = chatsResult.data?.find((c) => c.id === chatId);
+				const currentChat = chatsResult.data?.find(
+					(c) => c.id === (chatId as number),
+				);
 				if (currentChat && currentChat.title === "New Chat") {
 					const titleWords = messageContent.trim().split(" ");
 					const title =
 						titleWords.slice(0, 5).join(" ") +
 						(titleWords.length > 5 ? "..." : "");
-					updateChatTitle.mutate({ chatId, title });
+					updateChatTitle.mutate({ chatId: chatId as number, title });
 				}
 			} catch (error) {
 				if ((error as Error).name !== "AbortError") {
@@ -197,7 +218,7 @@ export function useChatSession(chatId: number | undefined) {
 		if (parserRef.current.thinking || parserRef.current.message) {
 			if (chatId) {
 				addMessage.mutate({
-					chatId,
+					chatId: chatId as number,
 					role: "assistant",
 					content: parserRef.current.message,
 					thinking: parserRef.current.thinking || undefined,
@@ -221,6 +242,9 @@ export function useChatSession(chatId: number | undefined) {
 		role: m.role as "user" | "assistant",
 		content: m.content,
 		thinking: m.thinking || undefined,
+		model: m.model || undefined,
+		totalTokens: m.totalTokens || undefined,
+		timeTakenMs: m.timeTakenMs || undefined,
 	}));
 
 	// Combine all sources for final display array
