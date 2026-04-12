@@ -22,7 +22,7 @@ export default function RootLayout() {
 			<Sidebar />
 
 			<main className="flex flex-1 flex-col overflow-hidden">
-				{collapsed && !isMobile && (
+				{collapsed && !isMobile && !isChatPage && (
 					<div className="flex items-center border-b border-zinc-800 px-3 py-2">
 						<button
 							type="button"

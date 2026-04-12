@@ -9,9 +9,15 @@ export type DtypeValue =
 	| "q4"
 	| "bnb4";
 
-export type ModelClass = "Qwen3_5" | "Gemma4";
+export type ModelClass = "Qwen3_5" | "Gemma4" | "Other";
 
-export type ThinkingTagFormat = "qwen" | "gemma" | null;
+export interface ThinkingTags {
+	start: string;
+	end: string[];
+	suffix?: string;
+}
+
+export type ThinkingTagFormat = "qwen" | "gemma" | "custom" | null;
 
 export interface SamplingParams {
 	temperature: number;
@@ -44,6 +50,25 @@ export interface ModelConfig {
 	thinking: {
 		enabled: boolean;
 		tagFormat: ThinkingTagFormat;
+		customTags?: ThinkingTags;
+	};
+	modality: "text" | "multimodal";
+	isDefault?: number;
+}
+
+export function parseModelConfig(row: any): ModelConfig {
+	return {
+		...row,
+		modality: row.modality ?? "text",
+		dtype: typeof row.dtype === "string" ? JSON.parse(row.dtype) : row.dtype,
+		sampling:
+			typeof row.sampling === "string"
+				? JSON.parse(row.sampling)
+				: row.sampling,
+		thinking:
+			typeof row.thinking === "string"
+				? JSON.parse(row.thinking)
+				: row.thinking,
 	};
 }
 
@@ -84,6 +109,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
 			enabled: true,
 			tagFormat: "qwen",
 		},
+		modality: "text",
 	},
 	"onnx-community/Qwen3.5-2B-ONNX": {
 		id: "onnx-community/Qwen3.5-2B-ONNX",
@@ -121,6 +147,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
 			enabled: true,
 			tagFormat: "qwen",
 		},
+		modality: "text",
 	},
 	"onnx-community/gemma-4-E2B-it-ONNX": {
 		id: "onnx-community/gemma-4-E2B-it-ONNX",
@@ -154,6 +181,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
 			enabled: true,
 			tagFormat: "gemma",
 		},
+		modality: "text",
 	},
 };
 
