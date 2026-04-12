@@ -34,6 +34,7 @@ export function useAddMessage() {
 			chatId,
 			role,
 			content,
+			images,
 			thinking,
 			model,
 			totalTokens,
@@ -42,6 +43,7 @@ export function useAddMessage() {
 			chatId: number;
 			role: string;
 			content: string;
+			images?: string[];
 			thinking?: string;
 			model?: string;
 			totalTokens?: number;
@@ -53,6 +55,8 @@ export function useAddMessage() {
 					chatId,
 					role,
 					content,
+					images:
+						images && images.length > 0 ? JSON.stringify(images) : undefined,
 					thinking,
 					model,
 					totalTokens,
