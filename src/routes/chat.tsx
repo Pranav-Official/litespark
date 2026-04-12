@@ -12,7 +12,7 @@ import { useLocalLLM } from "#/hooks/use-local-llm";
 export default function ChatPage() {
 	const { chatId } = useParams<{ chatId: string }>();
 	const id = Number(chatId);
-	const { openSidebar } = useSidebar();
+	const { toggleSidebar, collapsed, isMobile } = useSidebar();
 	const { data: chats } = useChats();
 	const currentChat = chats?.find((c) => c.id === id);
 	const { info, isLocal, activeModel } = useLocalLLM();
@@ -31,14 +31,16 @@ export default function ChatPage() {
 	return (
 		<div className="flex flex-1 flex-col overflow-hidden">
 			<div className="flex items-center gap-3 border-b border-zinc-800 px-3 py-2">
-				<button
-					type="button"
-					onClick={openSidebar}
-					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 lg:hidden"
-					aria-label="Open sidebar"
-				>
-					<PanelLeftOpen className="h-5 w-5" />
-				</button>
+				{(collapsed || isMobile) && (
+					<button
+						type="button"
+						onClick={toggleSidebar}
+						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+						aria-label="Toggle sidebar"
+					>
+						<PanelLeftOpen className="h-5 w-5" />
+					</button>
+				)}
 				<ModelSelector />
 				<h2 className="flex-1 truncate text-sm font-medium text-zinc-100 text-right lg:hidden">
 					{currentChat?.title ?? "Chat"}

@@ -1,11 +1,49 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { eq } from "drizzle-orm";
 import { useCallback, useEffect, useState } from "react";
+import { db } from "#/db";
+import { localModels } from "#/db/schema";
 import { localLLM, type ModelInfo, type ModelStatus } from "#/lib/local-llm";
 import {
 	DEFAULT_MODEL_ID,
-	getAvailableModels,
-	getModelConfig,
+	type ModelConfig,
+	parseModelConfig,
 } from "#/lib/model-registry";
 import { useAllSettings, useUpdateSetting } from "./use-settings";
+
+export function useLocalModels() {
+	return useQuery({
+		queryKey: ["local_models"],
+		queryFn: async () => {
+			const rows = await db.select().from(localModels);
+			return rows.map(parseModelConfig);
+		},
+	});
+}
+
+export function useCreateModel() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (model: ModelConfig) => {
+			await db.insert(localModels).values({
+				id: model.id,
+				name: model.name,
+				displayName: model.displayName,
+				size: model.size,
+				description: model.description,
+				modelClass: model.modelClass,
+				dtype: JSON.stringify(model.dtype),
+				sampling: JSON.stringify(model.sampling),
+				thinking: JSON.stringify(model.thinking),
+				modality: model.modality,
+				isDefault: model.isDefault ?? 0,
+			});
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["local_models"] });
+		},
+	});
+}
 
 const VALID_STATUSES: ModelStatus[] = [
 	"idle",
@@ -19,20 +57,24 @@ const VALID_STATUSES: ModelStatus[] = [
 export function useLocalLLM() {
 	const { data: settingsMap } = useAllSettings();
 	const updateSetting = useUpdateSetting();
+	const queryClient = useQueryClient();
+	const { data: availableModels = [] } = useLocalModels();
 	const savedModelId = settingsMap?.local_model_id ?? DEFAULT_MODEL_ID;
+
+	const activeModel =
+		availableModels.find((m) => m.id === savedModelId) ??
+		availableModels.find((m) => m.id === DEFAULT_MODEL_ID) ??
+		availableModels[0];
+
 	const [info, setInfo] = useState<ModelInfo>(localLLM.getInfo());
 	const [cachedModelIds, setCachedModelIds] = useState<Set<string>>(new Set());
 
 	const checkAllCaches = useCallback(async () => {
-		const available = getAvailableModels();
-		const cached = new Set<string>();
-		for (const m of available) {
-			if (await localLLM.isCached(m.id)) {
-				cached.add(m.id);
-			}
-		}
-		setCachedModelIds(cached);
-	}, []);
+		const ids = await localLLM.getCachedModelIds(
+			availableModels.map((m) => m.id),
+		);
+		setCachedModelIds(ids);
+	}, [availableModels]);
 
 	useEffect(() => {
 		const unsub = localLLM.onStatusChange(setInfo);
@@ -46,8 +88,10 @@ export function useLocalLLM() {
 	}, [checkAllCaches]);
 
 	useEffect(() => {
-		localLLM.setModel(savedModelId);
-	}, [savedModelId]);
+		if (activeModel) {
+			localLLM.setModel(activeModel);
+		}
+	}, [activeModel]);
 
 	const download = useCallback(
 		async (onProgress?: (p: number) => void) => {
@@ -82,6 +126,9 @@ export function useLocalLLM() {
 	const deleteModel = useCallback(
 		async (modelId?: string) => {
 			const targetId = modelId ?? savedModelId;
+			const m = availableModels.find((m) => m.id === targetId);
+
+			// 1. Clear cache
 			if (targetId === savedModelId) {
 				await localLLM.delete();
 				await updateSetting.mutateAsync({
@@ -89,7 +136,6 @@ export function useLocalLLM() {
 					value: "idle",
 				});
 			} else {
-				// Clear cache for specific model without affecting active model if different
 				const cacheKeys = await caches.keys();
 				for (const key of cacheKeys) {
 					if (key.includes("transformers") || key.includes("huggingface")) {
@@ -103,9 +149,16 @@ export function useLocalLLM() {
 					}
 				}
 			}
+
+			// 2. Delete from DB if not default
+			if (m && !m.isDefault) {
+				await db.delete(localModels).where(eq(localModels.id, targetId));
+				queryClient.invalidateQueries({ queryKey: ["local_models"] });
+			}
+
 			await checkAllCaches();
 		},
-		[updateSetting, savedModelId, checkAllCaches],
+		[updateSetting, savedModelId, checkAllCaches, availableModels, queryClient],
 	);
 
 	const inferenceMode = settingsMap?.inference_mode ?? "cloud";
@@ -133,13 +186,14 @@ export function useLocalLLM() {
 
 	const setActiveModel = useCallback(
 		async (modelId: string) => {
-			localLLM.setModel(modelId);
+			const m = availableModels.find((m) => m.id === modelId);
+			if (m) localLLM.setModel(m);
 			await updateSetting.mutateAsync({
 				key: "local_model_id",
 				value: modelId,
 			});
 		},
-		[updateSetting],
+		[updateSetting, availableModels],
 	);
 
 	const savedStatus = settingsMap?.local_model_status;
@@ -160,9 +214,6 @@ export function useLocalLLM() {
 		...info,
 		status: effectiveStatus,
 	};
-
-	const activeModel = getModelConfig(savedModelId);
-	const availableModels = getAvailableModels();
 
 	return {
 		info: displayInfo,

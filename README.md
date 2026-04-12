@@ -1,77 +1,86 @@
-# LiteSpark
+# ✨ LiteSpark
 
-LiteSpark is a chat application that runs AI models locally in the browser using WebGPU or WASM, or connects to cloud providers like OpenAI, Gemini, and OpenRouter.
+**LiteSpark** is a privacy-first AI workspace that runs entirely in your browser. By leveraging the power of **WebGPU** and **WASM**, it brings state-of-the-art AI models to your local hardware, ensuring your conversations stay private, secure, and available even when you're offline.
 
-## installation
+Need more horsepower? LiteSpark effortlessly bridges the gap between local privacy and cloud intelligence, supporting OpenAI, Gemini, and OpenRouter with a simple toggle.
+
+---
+
+## 🚀 Features
+
+- 🔒 **Privacy-First**: Run local inference models like Qwen and Gemma. Your data never leaves your browser.
+- ⚡ **WebGPU Accelerated**: Blazing-fast local performance powered by your GPU.
+- 📱 **PWA Ready**: Install it as an app for a native experience on desktop and mobile.
+
+---
+
+## 🛠️ Getting Started
+
+### Installation
+
+LiteSpark is built with **Bun** for maximum speed.
 
 ```bash
 bun install
 ```
 
-## development
+### Development
+
+Start the development server and watch the magic happen:
 
 ```bash
 bun run dev
 ```
 
-Open http://localhost:3000 in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## production build
+---
 
-```bash
-bun run build
-```
+## 📖 How to Use
 
-Preview the build with:
+### 🏠 Local Mode (The Private Way)
 
-```bash
-bun run preview
-```
+1. Head to **Settings** and switch Inference Mode to **Local**.
+2. Select your device (**WebGPU** for speed, **CPU** for compatibility).
+3. Click **Load** on a model to download it to your browser cache.
+4. **Chat freely.** Once loaded, you can turn off your internet and keep talking.
 
-## usage
+_Supported Models:_
 
-### Local models
+- **Qwen 2.5 0.8B** (~850 MB) - Light and fast.
+- **Qwen 2.5 2B** (~2.0 GB) - Great balance.
+- **Gemma 2 2B** (~2.3 GB) - Google's capable small model.
 
-Switch to local inference mode in Settings. Select a device (WebGPU or CPU). Click "Load" on a model to download it to your browser cache. Once loaded, you can chat with the model entirely offline.
+### 🛠️ Custom Models (Bring Your Own AI)
+LiteSpark isn't limited to the defaults. You can add any compatible ONNX model directly from Hugging Face:
+1. Go to **Settings** -> **Add Model**.
+2. Paste the Hugging Face Model ID (e.g., `onnx-community/LFM-2.5-350M-ONNX`).
+3. Select the correct **Modality** (Text or Vision) and **Model Class**.
+4. Click **Add Model Entry** and then **Load**.
 
-Supported local models:
-- Qwen3.5 0.8B (~850 MB)
-- Qwen3.5 2B (~2.0 GB)
-- Gemma 4 E2B (~2.3 GB)
+Find trending compatible models here: [Hugging Face ONNX Models](https://huggingface.co/models?pipeline_tag=text-generation&library=onnx&sort=trending)
 
-WebGPU requires a compatible browser (Chrome 113+, Edge 113+, or Firefox with WebGPU enabled).
+### ☁️ Cloud Mode
 
-### Cloud models
+Switch to **Cloud** mode in Settings, drop in your API key, and access models like `gpt-4o`, `claude-3.5-sonnet`, or `gemini-2.0-flash`.
 
-Switch to cloud inference mode in Settings. Enter an API key, select a provider, and choose a model.
+---
 
-Cloud providers:
-- OpenAI (gpt-4o, gpt-4o-mini, o3-mini, o1)
-- Gemini (gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash)
-- OpenRouter (openai/gpt-4o, anthropic/claude-3.5-sonnet, google/gemini-2.5-flash)
+## 🧱 Tech Stack
 
-Example API key placeholder: `sk_test_51Mz...`
+- **Frontend**: React 19 + TanStack Router
+- **Styling**: Tailwind CSS v4
+- **AI Orchestration**: Vercel AI SDK
+- **Local Inference**: HuggingFace Transformers.js
+- **Database**: PGlite (Postgres in the browser)
 
-### Thinking toggle
+---
 
-Some local models support reasoning. Toggle "thinking" in the message input when enabled to see the model's chain-of-thought process.
+## ⌨️ Developer Commands
 
-## tech stack
-
-- React 19
-- TanStack Router (file-based routing)
-- Tailwind CSS v4
-- Vercel AI SDK
-- HuggingFace Transformers.js (local inference)
-- PGlite (browser SQLite via IndexedDB)
-
-## commands
-
-```bash
-bun run dev        # start dev server
-bun run build     # production build
-bun run preview   # preview build
-bun run lint     # biome lint
-bun run format   # biome format
-bun run check   # biome check
-```
+| Command           | Action                           |
+| :---------------- | :------------------------------- |
+| `bun run dev`     | Start development server         |
+| `bun run build`   | Generate production build        |
+| `bun run preview` | Preview production build         |
+| `bun run check`   | Run Biome linting and formatting |
