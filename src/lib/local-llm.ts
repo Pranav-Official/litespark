@@ -4,6 +4,7 @@ import {
 	AutoProcessor,
 	AutoTokenizer,
 	env,
+	RawImage,
 	TextStreamer,
 } from "@huggingface/transformers";
 import type { ModelConfig } from "./model-registry";
@@ -221,9 +222,35 @@ class MultimodalPipeline extends BasePipeline {
 		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
 		const prompt = await this.preparePrompt(messages, options);
 
-		// If there are no images, bypass the processor's image handling
-		// by using the tokenizer directly to avoid "undefined is not iterable" errors.
-		const inputs = await this.processor.tokenizer(prompt);
+		// Extract base64 images from the messages
+		const base64Images: string[] = [];
+		for (const msg of messages) {
+			if (Array.isArray(msg.content)) {
+				for (const part of msg.content) {
+					if (part.type === "image" && typeof part.image === "string") {
+						base64Images.push(part.image);
+					}
+				}
+			}
+		}
+
+		let inputs: any;
+		if (base64Images.length > 0) {
+			// Convert base64 to RawImage
+			const rawImages = await Promise.all(
+				base64Images.map(async (b64) => {
+					// We need to fetch the blob from the data url and load it
+					const response = await fetch(b64);
+					const blob = await response.blob();
+					return await RawImage.fromBlob(blob);
+				}),
+			);
+			inputs = await this.processor(rawImages, prompt);
+		} else {
+			// If there are no images, bypass the processor's image handling
+			// by using the tokenizer directly to avoid "undefined is not iterable" errors.
+			inputs = await this.processor.tokenizer(prompt);
+		}
 
 		const streamer = new TextStreamer(this.processor.tokenizer, {
 			skip_prompt: true,

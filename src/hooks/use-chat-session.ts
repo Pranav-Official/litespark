@@ -16,25 +16,30 @@ const PROVIDERS = {
 	openrouter: (apiKey: string) => createOpenRouter({ apiKey }),
 };
 
-const MODELS: Record<string, string[]> = {
-	openai: ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1"],
+const MODELS: Record<string, { id: string; vision: boolean }[]> = {
+	openai: [
+		{ id: "gpt-4o", vision: true },
+		{ id: "gpt-4o-mini", vision: true },
+		{ id: "o3-mini", vision: false },
+		{ id: "o1", vision: true },
+	],
 	gemini: [
-		"gemini-2.5-flash",
-		"gemini-2.5-pro",
-		"gemini-2.0-flash",
-		"gemini-1.5-flash",
+		{ id: "gemini-2.5-flash", vision: true },
+		{ id: "gemini-2.5-pro", vision: true },
+		{ id: "gemini-2.0-flash", vision: true },
+		{ id: "gemini-1.5-flash", vision: true },
 	],
 	openrouter: [
-		"openai/gpt-4o",
-		"anthropic/claude-3.5-sonnet",
-		"google/gemini-2.5-flash",
-		"meta-llama/llama-3.3-70b-instruct",
-		"mistralai/mistral-large-2411",
+		{ id: "openai/gpt-4o", vision: true },
+		{ id: "anthropic/claude-3.5-sonnet", vision: true },
+		{ id: "google/gemini-2.5-flash", vision: true },
+		{ id: "meta-llama/llama-3.3-70b-instruct", vision: false },
+		{ id: "mistralai/mistral-large-2411", vision: false },
 	],
 };
 
 export function getAvailableModels(provider: string) {
-	return MODELS[provider] ?? MODELS.openai;
+	return (MODELS[provider] ?? MODELS.openai).map((m) => m.id);
 }
 
 export function useChatSession(chatId: number | undefined) {
@@ -49,6 +54,10 @@ export function useChatSession(chatId: number | undefined) {
 	const isLocal = inferenceMode === "local";
 
 	const modelConfig = localLLM.config;
+	const supportsVision = isLocal
+		? modelConfig?.modality === "multimodal"
+		: (MODELS[provider]?.find((m) => m.id === model)?.vision ?? false);
+
 	const thinkingConfig = modelConfig?.thinking;
 	const tags =
 		thinkingConfig?.customTags ??
@@ -66,6 +75,7 @@ export function useChatSession(chatId: number | undefined) {
 	// This ensures instant UI feedback even if IndexedDB takes a few ms
 	const [optimisticUserMessage, setOptimisticUserMessage] = useState<{
 		content: string;
+		images?: string[];
 	} | null>(null);
 
 	const parserRef = useRef(parser);
@@ -74,9 +84,10 @@ export function useChatSession(chatId: number | undefined) {
 	}, [parser]);
 
 	const sendMessage = useCallback(
-		async (content?: string, thinking?: boolean) => {
+		async (content?: string, thinking?: boolean, images?: string[]) => {
 			const messageContent = content || input;
-			if (!messageContent.trim() || !chatId) return;
+			if (!messageContent.trim() && (!images || images.length === 0)) return;
+			if (!chatId) return;
 			if (!isLocal && !apiKey) return;
 
 			setIsLoading(true);
@@ -84,7 +95,7 @@ export function useChatSession(chatId: number | undefined) {
 			parserRef.current.reset();
 
 			setInput("");
-			setOptimisticUserMessage({ content: messageContent.trim() });
+			setOptimisticUserMessage({ content: messageContent.trim(), images });
 
 			try {
 				// 1. Save user message to DB
@@ -93,6 +104,7 @@ export function useChatSession(chatId: number | undefined) {
 					chatId: chatId as number,
 					role: "user",
 					content: messageContent.trim(),
+					images,
 				});
 
 				// Clear optimistic state now that it's in dbMessages
@@ -100,12 +112,33 @@ export function useChatSession(chatId: number | undefined) {
 
 				// Use latest dbMessages for history + new user message
 				const history = [
-					...(dbMessages ?? []).map((m) => ({
-						role: m.role as "user" | "assistant" | "system",
-						content: m.content,
-					})),
-					{ role: "user" as const, content: messageContent.trim() },
-				];
+					...(dbMessages ?? []).map((m) => {
+						const hasImages = m.images && JSON.parse(m.images).length > 0;
+						return {
+							role: m.role as "user" | "assistant" | "system",
+							content:
+								hasImages && supportsVision
+									? [
+											...JSON.parse(m.images as string).map((img: string) => ({
+												type: "image",
+												image: img,
+											})),
+											{ type: "text", text: m.content },
+										]
+									: m.content,
+						};
+					}),
+					{
+						role: "user" as const,
+						content:
+							images && images.length > 0 && supportsVision
+								? [
+										...images.map((img) => ({ type: "image", image: img })),
+										{ type: "text", text: messageContent.trim() },
+									]
+								: messageContent.trim(),
+					},
+				] as any[];
 
 				streamingIdRef.current = crypto.randomUUID();
 				let finalContent = "";
@@ -207,6 +240,7 @@ export function useChatSession(chatId: number | undefined) {
 			refetchChats,
 			isLocal,
 			dbMessages,
+			supportsVision,
 		],
 	);
 
@@ -246,6 +280,7 @@ export function useChatSession(chatId: number | undefined) {
 		id: String(m.id),
 		role: m.role as "user" | "assistant",
 		content: m.content,
+		images: m.images ? JSON.parse(m.images) : undefined,
 		thinking: m.thinking || undefined,
 		model: m.model || undefined,
 		totalTokens: m.totalTokens || undefined,
@@ -261,6 +296,7 @@ export function useChatSession(chatId: number | undefined) {
 						id: "optimistic-user",
 						role: "user" as const,
 						content: optimisticUserMessage.content,
+						images: optimisticUserMessage.images,
 					},
 				]
 			: []),
@@ -287,5 +323,6 @@ export function useChatSession(chatId: number | undefined) {
 		reload,
 		hasKey: isLocal || !!apiKey,
 		isLocal,
+		supportsVision,
 	};
 }

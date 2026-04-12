@@ -13,6 +13,7 @@ interface Message {
 	totalTokens?: number;
 	timeTakenMs?: number;
 	isStreaming?: boolean;
+	images?: string[];
 }
 
 interface MessageListProps {
@@ -80,6 +81,19 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 										thinking={message.thinking ?? ""}
 										isStreaming={isStreaming}
 									/>
+								)}
+								{message.images && message.images.length > 0 && (
+									<div className="mb-2 flex flex-wrap gap-2">
+										{message.images.map((src, i) => (
+											<img
+												// biome-ignore lint/suspicious/noArrayIndexKey: it's static in a message
+												key={`msg-img-${message.id}-${i}`}
+												src={src}
+												alt={`Attachment ${i + 1}`}
+												className="h-32 w-auto max-w-full rounded-xl border border-zinc-700 object-contain shadow-sm"
+											/>
+										))}
+									</div>
 								)}
 								<div
 									className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
