@@ -214,14 +214,6 @@ export async function runMigrations(client: PGlite) {
 				);
 			},
 		},
-		{
-			name: "0005_add_message_images",
-			up: async (pg: PGlite) => {
-				await pg.exec(
-					"ALTER TABLE messages ADD COLUMN IF NOT EXISTS images TEXT;",
-				);
-			},
-		},
 	];
 
 	for (const migration of migrations) {

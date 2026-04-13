@@ -181,7 +181,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
 			enabled: true,
 			tagFormat: "gemma",
 		},
-		modality: "multimodal",
+		modality: "text",
 	},
 };
 
