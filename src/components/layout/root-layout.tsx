@@ -1,6 +1,5 @@
 import { PanelLeftOpen } from "lucide-react";
 import { Outlet, useLocation } from "react-router-dom";
-import { Toaster } from "sonner";
 import Sidebar from "#/components/chat/sidebar";
 import ReloadPrompt from "#/components/pwa/reload-prompt";
 import { useSidebar } from "#/context/sidebar-context";
@@ -50,7 +49,6 @@ export default function RootLayout() {
 				<Outlet />
 			</main>
 			<ReloadPrompt />
-			<Toaster theme="dark" />
 		</div>
 	);
 }

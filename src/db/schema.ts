@@ -12,7 +12,6 @@ export const messages = pgTable("messages", {
 	chatId: integer("chat_id").notNull(),
 	role: text().notNull(),
 	content: text().notNull(),
-	images: text(),
 	thinking: text(),
 	model: text(),
 	totalTokens: integer("total_tokens"),

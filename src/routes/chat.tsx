@@ -18,23 +18,11 @@ export default function ChatPage() {
 	const { info, isLocal, activeModel } = useLocalLLM();
 	const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
-	const {
-		messages,
-		input,
-		setInput,
-		isLoading,
-		sendMessage,
-		stop,
-		hasKey,
-		supportsVision,
-	} = useChatSession(id);
+	const { messages, input, setInput, isLoading, sendMessage, stop, hasKey } =
+		useChatSession(id);
 
-	const handleSubmit = (
-		content: string,
-		thinking?: boolean,
-		images?: string[],
-	) => {
-		sendMessage(content, thinking, images);
+	const handleSubmit = (content: string, thinking?: boolean) => {
+		sendMessage(content, thinking);
 	};
 
 	const modelNotReady = isLocal && info.status !== "ready";
@@ -105,7 +93,6 @@ export default function ChatPage() {
 						thinkingEnabled={thinkingEnabled}
 						onThinkingToggle={setThinkingEnabled}
 						showThinkingToggle={showThinkingToggle}
-						supportsVision={supportsVision}
 					/>
 				</div>
 			</div>
