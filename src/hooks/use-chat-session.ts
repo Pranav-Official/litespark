@@ -8,7 +8,7 @@ import { localLLM } from "#/lib/local-llm";
 import { useChats, useUpdateChatTitle } from "./use-chats";
 import { useAddMessage, useMessages } from "./use-messages";
 import { useActiveProvider, useAllSettings } from "./use-settings";
-import { DEFAULT_TAG_CONFIGS, useThinkingParser } from "./use-thinking-parser";
+import { useThinkingParser } from "./use-thinking-parser";
 
 const PROVIDERS = {
 	openai: (apiKey: string) => createOpenAI({ apiKey }),
@@ -49,13 +49,8 @@ export function useChatSession(chatId: number | undefined) {
 	const isLocal = inferenceMode === "local";
 
 	const modelConfig = localLLM.config;
-	const thinkingConfig = modelConfig?.thinking;
-	const tags =
-		thinkingConfig?.customTags ??
-		(thinkingConfig?.tagFormat === "gemma"
-			? DEFAULT_TAG_CONFIGS.gemma
-			: DEFAULT_TAG_CONFIGS.qwen);
-	const parser = useThinkingParser(tags);
+	const tagFormat = modelConfig?.thinking.tagFormat ?? "qwen";
+	const parser = useThinkingParser(tagFormat);
 
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);

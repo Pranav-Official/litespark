@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import type { ThinkingTags } from "#/lib/model-registry";
 
-export const DEFAULT_TAG_CONFIGS: Record<"qwen" | "gemma", ThinkingTags> = {
+type ThinkingTagFormat = "qwen" | "gemma";
+
+const TAG_CONFIGS: Record<
+	ThinkingTagFormat,
+	{ start: string; end: string[]; suffix?: string }
+> = {
 	qwen: {
 		start: "<think>",
 		end: [
@@ -31,7 +35,7 @@ function cleanMessage(text: string, suffix?: string): string {
 	return processedText.trimEnd();
 }
 
-export function useThinkingParser(config: ThinkingTags) {
+export function useThinkingParser(tagFormat: ThinkingTagFormat) {
 	const rawRef = useRef("");
 	const [thinking, setThinking] = useState("");
 	const [message, setMessage] = useState("");
@@ -43,6 +47,7 @@ export function useThinkingParser(config: ThinkingTags) {
 
 			rawRef.current += chunk;
 			const raw = rawRef.current;
+			const config = TAG_CONFIGS[tagFormat];
 
 			let thinkEndIdx = -1;
 			let matchedEndTag = "";
@@ -92,7 +97,7 @@ export function useThinkingParser(config: ThinkingTags) {
 			// FIX: Return the parsed values synchronously
 			return { thinking: nextThinking, message: nextMessage };
 		},
-		[config],
+		[tagFormat],
 	);
 
 	const reset = useCallback(() => {

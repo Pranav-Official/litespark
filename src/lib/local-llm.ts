@@ -1,12 +1,15 @@
 import {
-	AutoModel,
-	AutoModelForCausalLM,
 	AutoProcessor,
-	AutoTokenizer,
 	env,
+	Gemma4ForConditionalGeneration,
+	Qwen3_5ForConditionalGeneration,
 	TextStreamer,
 } from "@huggingface/transformers";
-import type { ModelConfig } from "./model-registry";
+import {
+	DEFAULT_MODEL_ID,
+	getModelConfig,
+	type ModelConfig,
+} from "./model-registry";
 
 export type ModelStatus =
 	| "idle"
@@ -30,6 +33,11 @@ export interface GenerateOptions {
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
+const MODEL_CLASSES: Record<string, any> = {
+	Qwen3_5: Qwen3_5ForConditionalGeneration,
+	Gemma4: Gemma4ForConditionalGeneration,
+};
+
 async function isModelInBrowserCache(modelId: string): Promise<boolean> {
 	try {
 		const cacheNames = await caches.keys();
@@ -37,6 +45,7 @@ async function isModelInBrowserCache(modelId: string): Promise<boolean> {
 			if (name.includes("transformers") || name.includes("huggingface")) {
 				const cache = await caches.open(name);
 				const requests = await cache.keys();
+				// Check if any request URL contains the modelId as a substring
 				if (requests.some((req) => req.url.includes(modelId))) {
 					return true;
 				}
@@ -63,252 +72,68 @@ async function clearModelCache(modelId: string) {
 	}
 }
 
-/**
- * Strategy Pattern for Model Modalities
- */
-abstract class BasePipeline {
-	protected processor: any = null;
-	protected model: any = null;
-	protected config: ModelConfig;
-	protected device: "webgpu" | "wasm";
-
-	constructor(config: ModelConfig, device: "webgpu" | "wasm") {
-		this.config = config;
-		this.device = device;
-	}
-
-	abstract load(
-		onProgress: (pct: number, status: ModelStatus) => void,
-	): Promise<void>;
-	abstract generate(
-		messages: { role: string; content: any }[],
-		onChunk: (text: string) => void,
-		signal: AbortSignal,
-		options?: GenerateOptions,
-	): Promise<{ text: string; usage: { totalTokens: number } }>;
-
-	dispose() {
-		if (this.model) {
-			try {
-				this.model.dispose();
-			} catch {}
-			this.model = null;
-		}
-		this.processor = null;
-	}
-
-	protected get progressCallback() {
-		return (e: any, onProgress: (pct: number, status: ModelStatus) => void) => {
-			if (e.progress !== undefined && e.file) {
-				onProgress(Math.round(e.progress), "loading");
-			} else if (e.total_progress !== undefined) {
-				onProgress(Math.round(e.total_progress * 100), "loading");
-			}
-		};
-	}
-
-	protected async preparePrompt(
-		messages: { role: string; content: any }[],
-		options?: GenerateOptions,
-	) {
-		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
-		const tagFormat = this.config.thinking.tagFormat ?? "qwen";
-
-		const prompt = this.processor.apply_chat_template(messages, {
-			tokenize: false,
-			add_generation_prompt: true,
-		});
-
-		if (enableThinking) {
-			const startTag =
-				this.config.thinking.customTags?.start ??
-				(tagFormat === "gemma" ? "<|channel>thought\n" : "<think>\n");
-			return prompt + startTag;
-		}
-
-		return prompt;
-	}
-}
-
-/**
- * Text-only Pipeline (No preprocessor_config.json check)
- */
-class TextPipeline extends BasePipeline {
-	async load(onProgress: (pct: number, status: ModelStatus) => void) {
-		const cb = (e: any) => this.progressCallback(e, onProgress);
-
-		this.processor = await AutoTokenizer.from_pretrained(this.config.id, {
-			progress_callback: cb,
-		});
-
-		const dtype = this.config.dtype ?? "q4f16";
-		this.model = await AutoModelForCausalLM.from_pretrained(this.config.id, {
-			dtype,
-			device: this.device,
-			progress_callback: cb,
-		});
-	}
-
-	async generate(
-		messages: { role: string; content: any }[],
-		onChunk: (text: string) => void,
-		signal: AbortSignal,
-		options?: GenerateOptions,
-	) {
-		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
-		const prompt = await this.preparePrompt(messages, options);
-
-		const inputs = await this.processor(prompt);
-		const streamer = new TextStreamer(this.processor, {
-			skip_prompt: true,
-			skip_special_tokens: true,
-			callback_function: (text: string) => {
-				if (signal.aborted) return;
-				onChunk(text);
-			},
-		});
-
-		const sampling = this.config.sampling;
-		const params = enableThinking
-			? (sampling?.thinking ?? sampling?.nonThinking)
-			: sampling?.nonThinking;
-
-		const outputs = await this.model.generate({
-			...inputs,
-			max_new_tokens: params?.max_new_tokens ?? 8192,
-			temperature: params?.temperature ?? 1.0,
-			top_p: params?.top_p ?? 1.0,
-			top_k: params?.top_k ?? 20,
-			min_p: params?.min_p ?? 0.0,
-			presence_penalty: params?.presence_penalty ?? 1.5,
-			repetition_penalty: params?.repetition_penalty ?? 1.2,
-			streamer,
-		});
-
-		return {
-			text: "", // Streamed via callback
-			usage: { totalTokens: outputs[0]?.length ?? 0 },
-		};
-	}
-}
-
-/**
- * Multimodal Pipeline (Uses AutoProcessor)
- */
-class MultimodalPipeline extends BasePipeline {
-	async load(onProgress: (pct: number, status: ModelStatus) => void) {
-		const cb = (e: any) => this.progressCallback(e, onProgress);
-
-		// This WILL look for preprocessor_config.json
-		this.processor = await AutoProcessor.from_pretrained(this.config.id, {
-			progress_callback: cb,
-		});
-
-		const dtype = this.config.dtype ?? "q4f16";
-		this.model = await AutoModel.from_pretrained(this.config.id, {
-			dtype,
-			device: this.device,
-			progress_callback: cb,
-		});
-	}
-
-	async generate(
-		messages: { role: string; content: any }[],
-		onChunk: (text: string) => void,
-		signal: AbortSignal,
-		options?: GenerateOptions,
-	) {
-		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
-		const prompt = await this.preparePrompt(messages, options);
-
-		// If there are no images, bypass the processor's image handling
-		// by using the tokenizer directly to avoid "undefined is not iterable" errors.
-		const inputs = await this.processor.tokenizer(prompt);
-
-		const streamer = new TextStreamer(this.processor.tokenizer, {
-			skip_prompt: true,
-			skip_special_tokens: true,
-			callback_function: (text: string) => {
-				if (signal.aborted) return;
-				onChunk(text);
-			},
-		});
-
-		const sampling = this.config.sampling;
-		const params = enableThinking
-			? (sampling?.thinking ?? sampling?.nonThinking)
-			: sampling?.nonThinking;
-
-		const outputs = await this.model.generate({
-			...inputs,
-			max_new_tokens: params?.max_new_tokens ?? 4096,
-			temperature: params?.temperature ?? 0.7,
-			streamer,
-		});
-
-		return {
-			text: "",
-			usage: { totalTokens: outputs[0]?.length ?? 0 },
-		};
-	}
-}
-
-/**
- * Main LocalLLM Coordinator
- */
 class LocalLLM {
-	private _pipeline: BasePipeline | null = null;
+	private processor: any = null;
+	private model: any = null;
 	private _config: ModelConfig | null = null;
 	private _status: ModelStatus = "idle";
 	private _progress = 0;
 	private _error: string | null = null;
-	private _device: "webgpu" | "wasm" = "webgpu";
-	private listeners: Set<(info: ModelInfo) => void> = new Set();
 	private abortController: AbortController | null = null;
+	private _device: "webgpu" | "wasm" = "webgpu";
+	private _downloaded = false;
 
-	get config() {
+	get config(): ModelConfig | null {
 		return this._config;
 	}
-	get status() {
+
+	get status(): ModelStatus {
 		return this._status;
 	}
-	get progress() {
+
+	get progress(): number {
 		return this._progress;
 	}
-	get error() {
+
+	get error(): string | null {
 		return this._error;
 	}
-	get device() {
-		return this._device;
+
+	get isReady(): boolean {
+		return this._status === "ready" && this.model !== null;
 	}
-	get isReady() {
-		return this._status === "ready" && this._pipeline !== null;
+
+	get isDownloaded(): boolean {
+		return this._downloaded || this._status === "downloaded";
+	}
+
+	get device(): "webgpu" | "wasm" {
+		return this._device;
 	}
 
 	setDevice(device: "webgpu" | "wasm") {
 		this._device = device;
-		if (this._pipeline) this.unload();
 	}
 
-	setModel(config: ModelConfig) {
-		if (this._config?.id !== config.id) {
-			this.unload();
+	setModel(modelId: string) {
+		const config = getModelConfig(modelId);
+		if (!config) throw new Error(`Unknown model: ${modelId}`);
+		if (this._config?.id !== modelId) {
 			this._config = config;
+			this._downloaded = false;
 			this._status = "idle";
 			this._progress = 0;
+			this.unload();
 			this.checkCache();
 		}
 	}
 
-	private setStatus(status: ModelStatus, progress = 0) {
+	private setStatus(status: ModelStatus, progress?: number) {
 		this._status = status;
-		this._progress = progress;
-		this.notify();
-	}
-
-	private notify() {
-		const info = this.getInfo();
-		for (const cb of this.listeners) cb(info);
+		if (progress !== undefined) this._progress = progress;
+		for (const cb of this.listeners) {
+			cb(this.getInfo());
+		}
 	}
 
 	getInfo(): ModelInfo {
@@ -320,127 +145,318 @@ class LocalLLM {
 		};
 	}
 
+	private listeners: Set<(info: ModelInfo) => void> = new Set();
+
 	onStatusChange(cb: (info: ModelInfo) => void) {
 		this.listeners.add(cb);
 		cb(this.getInfo());
 		return () => this.listeners.delete(cb);
 	}
 
+	private get modelId(): string {
+		return this._config?.id ?? DEFAULT_MODEL_ID;
+	}
+
+	private get modelClass(): string {
+		return this._config?.modelClass ?? "Qwen3_5";
+	}
+
 	async isCached(modelId: string): Promise<boolean> {
+		// First check manually if any files are in the browser cache
 		const inCache = await isModelInBrowserCache(modelId);
 		if (inCache) return true;
+
 		try {
-			// Fast check for tokenizer only to see if basic files exist
-			await AutoTokenizer.from_pretrained(modelId, { local_files_only: true });
+			// Fallback: check if we can load the processor locally.
+			// This covers cases where transformers.js uses its own internal logic.
+			await AutoProcessor.from_pretrained(modelId, {
+				local_files_only: true,
+			});
 			return true;
-		} catch {
+		} catch (_e) {
 			return false;
 		}
 	}
 
-	async getCachedModelIds(availableModelIds: string[]): Promise<Set<string>> {
-		const cachedIds = new Set<string>();
-		try {
-			const cacheNames = await caches.keys();
-			const allUrls: string[] = [];
-			for (const name of cacheNames) {
-				if (name.includes("transformers") || name.includes("huggingface")) {
-					const cache = await caches.open(name);
-					const requests = await cache.keys();
-					for (const req of requests) {
-						allUrls.push(req.url);
-					}
-				}
-			}
-
-			for (const id of availableModelIds) {
-				if (allUrls.some((url) => url.includes(id))) {
-					cachedIds.add(id);
-				}
-			}
-		} catch (err) {
-			console.error("Error checking browser cache:", err);
-		}
-		return cachedIds;
-	}
-
 	async checkCache() {
-		if (!this._config) return;
-		const cached = await this.isCached(this._config.id);
-		if (cached && this._status === "idle") {
-			this.setStatus("downloaded", 100);
+		if (this._config) {
+			const cached = await this.isCached(this._config.id);
+			if (cached && this._status === "idle") {
+				this._downloaded = true;
+				this.setStatus("downloaded");
+			}
 		}
 	}
 
-	async download(onProgress?: (p: number) => void) {
-		await this.load(onProgress);
-		// For downloading, we free memory immediately after cache is warm
-		this.unload();
-		this.setStatus("downloaded", 100);
-	}
-
-	async load(onProgress?: (p: number) => void) {
-		if (!this._config) return;
-		if (this.isReady) return;
+	async download(onProgress?: (progress: number) => void) {
+		if (this._downloaded && (await this.isCached(this.modelId))) {
+			this.setStatus("downloaded", 100);
+			return;
+		}
 
 		this._error = null;
+		this._progress = 0;
+		this.setStatus("downloading", 0);
+
+		try {
+			const progressCallback = (e: any) => {
+				if (e.progress !== undefined && e.file) {
+					const pct = Math.round(e.progress);
+					this._progress = Math.min(pct, 100);
+					for (const cb of this.listeners) {
+						cb(this.getInfo());
+					}
+					onProgress?.(this._progress);
+				} else if (e.total_progress !== undefined) {
+					const pct = Math.round(e.total_progress * 100);
+					if (pct > this._progress) {
+						this._progress = Math.min(pct, 100);
+						for (const cb of this.listeners) {
+							cb(this.getInfo());
+						}
+						onProgress?.(this._progress);
+					}
+				}
+			};
+
+			// Download processor (tokenizer/config) to cache
+			this.processor = await AutoProcessor.from_pretrained(this.modelId, {
+				progress_callback: progressCallback,
+			});
+
+			// Download model weights to cache + load to memory
+			const ModelClass =
+				MODEL_CLASSES[this.modelClass] ?? Qwen3_5ForConditionalGeneration;
+			const dtype = this._config?.dtype ?? "q4f16";
+
+			this.model = await ModelClass.from_pretrained(this.modelId, {
+				dtype,
+				device: this._device,
+				progress_callback: progressCallback,
+			});
+
+			// All files are now cached. Free memory immediately.
+			this._downloaded = true;
+			this.model.dispose();
+			this.model = null;
+			this.setStatus("downloaded", 100);
+		} catch (err) {
+			this._error = (err as Error).message;
+			this._status = "error";
+			for (const cb of this.listeners) {
+				cb(this.getInfo());
+			}
+			throw err;
+		}
+	}
+
+	async load(onProgress?: (progress: number) => void) {
+		if (this.isReady) return;
+
+		const cached = await this.isCached(this.modelId);
+		if (!cached) {
+			await this.download(onProgress);
+		}
+
+		this._error = null;
+		this._progress = 0;
 		this.setStatus("loading", 0);
 
 		try {
-			// Dispose previous pipeline
-			if (this._pipeline) this._pipeline.dispose();
+			const progressCallback = (e: any) => {
+				if (e.progress !== undefined && e.file) {
+					const pct = Math.round(e.progress);
+					this._progress = Math.min(pct, 100);
+					for (const cb of this.listeners) {
+						cb(this.getInfo());
+					}
+					onProgress?.(this._progress);
+				}
+			};
 
-			// Create new strategy
-			this._pipeline =
-				this._config.modality === "multimodal"
-					? new MultimodalPipeline(this._config, this._device)
-					: new TextPipeline(this._config, this._device);
+			// Reload processor from cache if needed
+			if (!this.processor) {
+				this.processor = await AutoProcessor.from_pretrained(this.modelId, {
+					progress_callback: progressCallback,
+				});
+			}
 
-			await this._pipeline.load((pct, status) => {
-				this._progress = pct;
-				this._status = status;
-				onProgress?.(pct);
-				this.notify();
+			// Load model weights from cache (no network if already cached)
+			const ModelClass =
+				MODEL_CLASSES[this.modelClass] ?? Qwen3_5ForConditionalGeneration;
+			const dtype = this._config?.dtype ?? "q4f16";
+
+			this.model = await ModelClass.from_pretrained(this.modelId, {
+				dtype,
+				device: this._device,
+				progress_callback: progressCallback,
 			});
 
 			this.setStatus("ready", 100);
 		} catch (err) {
 			this._error = (err as Error).message;
-			this.setStatus("error", 0);
+			this._status = "error";
+			for (const cb of this.listeners) {
+				cb(this.getInfo());
+			}
 			throw err;
 		}
 	}
 
 	unload() {
 		this.abortController?.abort();
-		if (this._pipeline) {
-			this._pipeline.dispose();
-			this._pipeline = null;
+		this.abortController = null;
+
+		if (this.model) {
+			try {
+				this.model.dispose();
+			} catch {}
+			this.model = null;
 		}
-		this._status = "idle";
+		this.processor = null;
+		this._status = this._downloaded ? "downloaded" : "idle";
 		this._progress = 0;
-		this.checkCache();
-		this.notify();
+		this._error = null;
+		for (const cb of this.listeners) {
+			cb(this.getInfo());
+		}
 	}
 
 	async generate(
-		messages: { role: string; content: any }[],
+		messages: { role: string; content: string }[],
 		onChunk: (text: string) => void,
-		signal: AbortSignal,
+		signal?: AbortSignal,
 		options?: GenerateOptions,
-	) {
-		if (!this._pipeline || !this.isReady) throw new Error("Model not ready");
-		this.abortController = new AbortController();
+	): Promise<{ text: string; usage: { totalTokens: number } }> {
+		if (!this.isReady || !this.processor || !this.model) {
+			throw new Error("Model not loaded");
+		}
 
-		const combinedSignal = signal ? signal : this.abortController.signal;
+		this.abortController = new AbortController();
+		const internalSignal = this.abortController.signal;
+
+		const enableThinking =
+			options?.thinking ?? this._config?.thinking.enabled ?? false;
+
+		let promptText: string;
+
+		// Build messages with thinking system prompt
+		const thinkingInstruction = "Think deeply step by step.";
+		let processedMessages = messages;
+
+		if (enableThinking) {
+			const existingSystem = messages.find((m) => m.role === "system");
+			const systemContent = existingSystem
+				? `${existingSystem.content}\n${thinkingInstruction}`
+				: thinkingInstruction;
+
+			if (this.modelClass === "Gemma4") {
+				// Gemma 4: prepend <|think|> to system prompt to enable thinking
+				const gemmaSystemContent = `<|think|>${systemContent}`;
+				const systemMsg = messages.find((m) => m.role === "system");
+				if (systemMsg) {
+					processedMessages = messages.map((m) =>
+						m.role === "system"
+							? {
+									...m,
+									content: `<|think|>${m.content}\n${thinkingInstruction}`,
+								}
+							: m,
+					);
+				} else {
+					processedMessages = [
+						{ role: "system", content: gemmaSystemContent },
+						...messages,
+					];
+				}
+			} else {
+				// Qwen3.5: add thinking instruction to system prompt
+				const systemMsg = messages.find((m) => m.role === "system");
+				if (systemMsg) {
+					processedMessages = messages.map((m) =>
+						m.role === "system"
+							? { ...m, content: `<think>${m.content}\n` }
+							: m,
+					);
+				} else {
+					processedMessages = [
+						{ role: "system", content: "<think>" },
+						...messages,
+					];
+				}
+			}
+		}
+
+		// Apply chat template
+		if (this.modelClass === "Gemma4") {
+			promptText = this.processor.apply_chat_template(processedMessages, {
+				add_generation_prompt: true,
+				enable_thinking: enableThinking,
+			});
+		} else {
+			// For Qwen3.5, try enable_thinking directly or via chat_template_kwargs, then fallback
+			try {
+				promptText = this.processor.apply_chat_template(processedMessages, {
+					add_generation_prompt: true,
+					enable_thinking: enableThinking,
+					chat_template_kwargs: { enable_thinking: enableThinking },
+				});
+			} catch {
+				promptText = this.processor.apply_chat_template(processedMessages, {
+					add_generation_prompt: true,
+				});
+			}
+
+			// Manually append <think> for Qwen3.5 if the template didn't handle it
+			if (enableThinking && !promptText.includes("<think>")) {
+				promptText += "<think>\n";
+			}
+		}
+
+		const inputs = await this.processor(promptText);
+
+		let fullText = "";
+		let isDone = false;
+
+		const streamer = new TextStreamer(this.processor.tokenizer, {
+			skip_prompt: true,
+			skip_special_tokens: !enableThinking,
+			callback_function: (text: string) => {
+				if (isDone || internalSignal.aborted || signal?.aborted) return;
+				fullText += text;
+				onChunk(text);
+			},
+		});
+
+		const sampling = this._config?.sampling;
+		const params = enableThinking
+			? (sampling?.thinking ?? sampling?.nonThinking)
+			: sampling?.nonThinking;
+
+		const generationOptions: any = {
+			...inputs,
+			max_new_tokens: params?.max_new_tokens ?? 8192,
+			temperature: params?.temperature ?? 1.0,
+			top_p: params?.top_p ?? 1.0,
+			top_k: params?.top_k ?? 20,
+			min_p: params?.min_p ?? 0.0,
+			presence_penalty: params?.presence_penalty ?? 1.5,
+			repetition_penalty: params?.repetition_penalty ?? 1.2,
+			streamer,
+		};
 
 		try {
-			return await this._pipeline.generate(
-				messages,
-				onChunk,
-				combinedSignal,
-				options,
-			);
+			const outputs = await this.model.generate(generationOptions);
+			const totalTokens = outputs[0]?.length ?? 0;
+
+			isDone = true;
+			return { text: fullText, usage: { totalTokens } };
+		} catch (err) {
+			if (internalSignal.aborted || signal?.aborted) {
+				isDone = true;
+				return { text: fullText, usage: { totalTokens: 0 } };
+			}
+			throw err;
 		} finally {
 			this.abortController = null;
 		}
@@ -450,11 +466,37 @@ class LocalLLM {
 		this.abortController?.abort();
 	}
 
+	resetStatus() {
+		this._status = "idle";
+		this._progress = 0;
+		this._error = null;
+		this._downloaded = false;
+		for (const cb of this.listeners) {
+			cb(this.getInfo());
+		}
+	}
+
 	async delete() {
-		const id = this._config?.id;
-		this.unload();
-		if (id) await clearModelCache(id);
-		this.setStatus("idle", 0);
+		this.abortController?.abort();
+		this.abortController = null;
+
+		if (this.model) {
+			try {
+				this.model.dispose();
+			} catch {}
+			this.model = null;
+		}
+		this.processor = null;
+
+		await clearModelCache(this.modelId);
+
+		this._status = "idle";
+		this._progress = 0;
+		this._error = null;
+		this._downloaded = false;
+		for (const cb of this.listeners) {
+			cb(this.getInfo());
+		}
 	}
 }
 
