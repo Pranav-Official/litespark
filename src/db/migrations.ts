@@ -222,6 +222,28 @@ export async function runMigrations(client: PGlite) {
 				);
 			},
 		},
+		{
+			name: "0006_add_path_map_to_local_models",
+			up: async (pg: PGlite) => {
+				await pg.exec(
+					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS path_map TEXT;",
+				);
+				await pg.exec(
+					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS repo_files TEXT;",
+				);
+				await pg.exec(
+					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS architecture TEXT;",
+				);
+			},
+		},
+		{
+			name: "0007_add_repo_files_to_local_models",
+			up: async (pg: PGlite) => {
+				await pg.exec(
+					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS repo_files TEXT;",
+				);
+			},
+		},
 	];
 
 	for (const migration of migrations) {

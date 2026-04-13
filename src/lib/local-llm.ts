@@ -1,9 +1,12 @@
+import "./patch-fetch";
 import {
 	AutoModel,
 	AutoModelForCausalLM,
+	AutoModelForVision2Seq,
 	AutoProcessor,
 	AutoTokenizer,
 	env,
+	MultiModalityCausalLM,
 	RawImage,
 	TextStreamer,
 } from "@huggingface/transformers";
@@ -22,6 +25,7 @@ export interface ModelInfo {
 	status: ModelStatus;
 	progress: number;
 	error: string | null;
+	downloads?: Record<string, number>;
 }
 
 export interface GenerateOptions {
@@ -30,6 +34,20 @@ export interface GenerateOptions {
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+
+/**
+ * Global store for path maps to assist fetch patching
+ */
+const setGlobalPathMap = (
+	modelId: string,
+	pathMap?: Record<string, string>,
+) => {
+	if (!pathMap) return;
+	const maps = (window as any).__LITESPARK_PATH_MAPS__ || {};
+	maps[modelId] = pathMap;
+	(window as any).__LITESPARK_PATH_MAPS__ = maps;
+	localStorage.setItem(`path_map_${modelId}`, JSON.stringify(pathMap));
+};
 
 async function isModelInBrowserCache(modelId: string): Promise<boolean> {
 	try {
@@ -65,13 +83,14 @@ async function clearModelCache(modelId: string) {
 }
 
 /**
- * Strategy Pattern for Model Modalities
+ * Base Pipeline Class
  */
 abstract class BasePipeline {
 	protected processor: any = null;
 	protected model: any = null;
 	protected config: ModelConfig;
 	protected device: "webgpu" | "wasm";
+	protected downloads: Record<string, number> = {};
 
 	constructor(config: ModelConfig, device: "webgpu" | "wasm") {
 		this.config = config;
@@ -79,8 +98,13 @@ abstract class BasePipeline {
 	}
 
 	abstract load(
-		onProgress: (pct: number, status: ModelStatus) => void,
+		onProgress: (
+			pct: number,
+			status: ModelStatus,
+			downloads: Record<string, number>,
+		) => void,
 	): Promise<void>;
+
 	abstract generate(
 		messages: { role: string; content: any }[],
 		onChunk: (text: string) => void,
@@ -99,11 +123,26 @@ abstract class BasePipeline {
 	}
 
 	protected get progressCallback() {
-		return (e: any, onProgress: (pct: number, status: ModelStatus) => void) => {
-			if (e.progress !== undefined && e.file) {
-				onProgress(Math.round(e.progress), "loading");
-			} else if (e.total_progress !== undefined) {
-				onProgress(Math.round(e.total_progress * 100), "loading");
+		return (
+			e: any,
+			onProgress: (
+				pct: number,
+				status: ModelStatus,
+				downloads: Record<string, number>,
+			) => void,
+		) => {
+			if (e.file && e.progress !== undefined) {
+				this.downloads[e.file] = Math.round(e.progress);
+
+				// Calculate overall progress
+				const values = Object.values(this.downloads);
+				const total = values.reduce((a, b) => a + b, 0);
+				const avg = total / values.length;
+
+				onProgress(Math.round(avg), "loading", { ...this.downloads });
+			} else if (e.status === "done") {
+				if (e.file) this.downloads[e.file] = 100;
+				onProgress(100, "loading", { ...this.downloads });
 			}
 		};
 	}
@@ -115,7 +154,17 @@ abstract class BasePipeline {
 		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
 		const tagFormat = this.config.thinking.tagFormat ?? "qwen";
 
-		const prompt = this.processor.apply_chat_template(messages, {
+		let formattedMessages = messages;
+		if (this.config.modality === "multimodal") {
+			formattedMessages = messages.map((msg) => {
+				if (typeof msg.content === "string") {
+					return { ...msg, content: [{ type: "text", text: msg.content }] };
+				}
+				return msg;
+			});
+		}
+
+		const prompt = this.processor.apply_chat_template(formattedMessages, {
 			tokenize: false,
 			add_generation_prompt: true,
 		});
@@ -132,85 +181,81 @@ abstract class BasePipeline {
 }
 
 /**
- * Text-only Pipeline (No preprocessor_config.json check)
+ * Universal Strategy-Based Pipeline
  */
-class TextPipeline extends BasePipeline {
-	async load(onProgress: (pct: number, status: ModelStatus) => void) {
+class UniversalPipeline extends BasePipeline {
+	async load(
+		onProgress: (
+			pct: number,
+			status: ModelStatus,
+			downloads: Record<string, number>,
+		) => void,
+	) {
 		const cb = (e: any) => this.progressCallback(e, onProgress);
 
-		this.processor = await AutoTokenizer.from_pretrained(this.config.id, {
-			progress_callback: cb,
-		});
+		// 1. Identify optimal model class
+		const modelId = this.config.id;
+		const arch = this.config.architecture?.toLowerCase() || "";
 
-		const dtype = this.config.dtype ?? "q4f16";
-		this.model = await AutoModelForCausalLM.from_pretrained(this.config.id, {
-			dtype,
+		// 2. Load Processor/Tokenizer
+		try {
+			if (this.config.modality === "multimodal") {
+				this.processor = await AutoProcessor.from_pretrained(modelId, {
+					progress_callback: cb,
+				});
+			} else {
+				this.processor = await AutoTokenizer.from_pretrained(modelId, {
+					progress_callback: cb,
+				});
+			}
+		} catch (e) {
+			console.warn("[Loader] Failed to load processor, trying fallback", e);
+			this.processor = await AutoTokenizer.from_pretrained(modelId, {
+				progress_callback: cb,
+			});
+		}
+
+		// 3. Load Model using Strategy
+		const loadOptions = {
+			dtype: this.config.dtype,
 			device: this.device,
 			progress_callback: cb,
-		});
-	}
-
-	async generate(
-		messages: { role: string; content: any }[],
-		onChunk: (text: string) => void,
-		signal: AbortSignal,
-		options?: GenerateOptions,
-	) {
-		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
-		const prompt = await this.preparePrompt(messages, options);
-
-		const inputs = await this.processor(prompt);
-		const streamer = new TextStreamer(this.processor, {
-			skip_prompt: true,
-			skip_special_tokens: true,
-			callback_function: (text: string) => {
-				if (signal.aborted) return;
-				onChunk(text);
-			},
-		});
-
-		const sampling = this.config.sampling;
-		const params = enableThinking
-			? (sampling?.thinking ?? sampling?.nonThinking)
-			: sampling?.nonThinking;
-
-		const outputs = await this.model.generate({
-			...inputs,
-			max_new_tokens: params?.max_new_tokens ?? 8192,
-			temperature: params?.temperature ?? 1.0,
-			top_p: params?.top_p ?? 1.0,
-			top_k: params?.top_k ?? 20,
-			min_p: params?.min_p ?? 0.0,
-			presence_penalty: params?.presence_penalty ?? 1.5,
-			repetition_penalty: params?.repetition_penalty ?? 1.2,
-			streamer,
-		});
-
-		return {
-			text: "", // Streamed via callback
-			usage: { totalTokens: outputs[0]?.length ?? 0 },
 		};
-	}
-}
 
-/**
- * Multimodal Pipeline (Uses AutoProcessor)
- */
-class MultimodalPipeline extends BasePipeline {
-	async load(onProgress: (pct: number, status: ModelStatus) => void) {
-		const cb = (e: any) => this.progressCallback(e, onProgress);
+		// "Manifest-Guard" loading optimization
+		// By checking the pathMap, we avoid speculative loading completely
+		// which prevents 404 network spam.
+		const hasGenHead = Object.keys(this.config.pathMap || {}).some(
+			(k) => k.includes("gen_head") || k.includes("language_model"),
+		);
 
-		// This WILL look for preprocessor_config.json
-		this.processor = await AutoProcessor.from_pretrained(this.config.id, {
-			progress_callback: cb,
-		});
-
-		const dtype = this.config.dtype ?? "q4f16";
-		this.model = await AutoModel.from_pretrained(this.config.id, {
-			dtype,
-			device: this.device,
-			progress_callback: cb,
-		});
+		if (arch.includes("janus") || hasGenHead) {
+			console.log("[Loader] Using MultiModalityCausalLM strategy");
+			this.model = await MultiModalityCausalLM.from_pretrained(
+				modelId,
+				loadOptions,
+			);
+		} else if (this.config.modality === "multimodal") {
+			console.log("[Loader] Using AutoModelForVision2Seq strategy");
+			try {
+				this.model = await AutoModelForVision2Seq.from_pretrained(
+					modelId,
+					loadOptions,
+				);
+			} catch (e2) {
+				console.warn(
+					"[Loader] AutoModelForVision2Seq failed, trying AutoModel",
+					e2,
+				);
+				this.model = await AutoModel.from_pretrained(modelId, loadOptions);
+			}
+		} else {
+			console.log("[Loader] Using AutoModelForCausalLM strategy");
+			this.model = await AutoModelForCausalLM.from_pretrained(
+				modelId,
+				loadOptions,
+			);
+		}
 	}
 
 	async generate(
@@ -222,37 +267,39 @@ class MultimodalPipeline extends BasePipeline {
 		const enableThinking = options?.thinking ?? this.config.thinking.enabled;
 		const prompt = await this.preparePrompt(messages, options);
 
-		// Extract base64 images from the messages
-		const base64Images: string[] = [];
-		for (const msg of messages) {
-			if (Array.isArray(msg.content)) {
-				for (const part of msg.content) {
-					if (part.type === "image" && typeof part.image === "string") {
-						base64Images.push(part.image);
+		let inputs: any;
+		if (this.config.modality === "multimodal") {
+			// Extract images
+			const base64Images: string[] = [];
+			for (const msg of messages) {
+				if (Array.isArray(msg.content)) {
+					for (const part of msg.content) {
+						if (part.type === "image" && typeof part.image === "string") {
+							base64Images.push(part.image);
+						}
 					}
 				}
 			}
-		}
 
-		let inputs: any;
-		if (base64Images.length > 0) {
-			// Convert base64 to RawImage
-			const rawImages = await Promise.all(
-				base64Images.map(async (b64) => {
-					// We need to fetch the blob from the data url and load it
-					const response = await fetch(b64);
-					const blob = await response.blob();
-					return await RawImage.fromBlob(blob);
-				}),
-			);
-			inputs = await this.processor(rawImages, prompt);
+			if (base64Images.length > 0) {
+				const rawImages = await Promise.all(
+					base64Images.map(async (b64) => {
+						const response = await fetch(b64);
+						const blob = await response.blob();
+						return await RawImage.fromBlob(blob);
+					}),
+				);
+				inputs = await this.processor(prompt, rawImages);
+			} else {
+				const tokenizer = this.processor.tokenizer || this.processor;
+				inputs = await tokenizer(prompt);
+			}
 		} else {
-			// If there are no images, bypass the processor's image handling
-			// by using the tokenizer directly to avoid "undefined is not iterable" errors.
-			inputs = await this.processor.tokenizer(prompt);
+			inputs = await this.processor(prompt);
 		}
 
-		const streamer = new TextStreamer(this.processor.tokenizer, {
+		const tokenizer = this.processor.tokenizer || this.processor;
+		const streamer = new TextStreamer(tokenizer, {
 			skip_prompt: true,
 			skip_special_tokens: true,
 			callback_function: (text: string) => {
@@ -270,6 +317,8 @@ class MultimodalPipeline extends BasePipeline {
 			...inputs,
 			max_new_tokens: params?.max_new_tokens ?? 4096,
 			temperature: params?.temperature ?? 0.7,
+			top_p: params?.top_p ?? 1.0,
+			top_k: params?.top_k ?? 50,
 			streamer,
 		});
 
@@ -289,6 +338,7 @@ class LocalLLM {
 	private _status: ModelStatus = "idle";
 	private _progress = 0;
 	private _error: string | null = null;
+	private _downloads: Record<string, number> = {};
 	private _device: "webgpu" | "wasm" = "webgpu";
 	private listeners: Set<(info: ModelInfo) => void> = new Set();
 	private abortController: AbortController | null = null;
@@ -323,13 +373,23 @@ class LocalLLM {
 			this._config = config;
 			this._status = "idle";
 			this._progress = 0;
+			this._downloads = {};
+
+			// Setup path map for fetch remapping
+			setGlobalPathMap(config.id, config.pathMap);
+
 			this.checkCache();
 		}
 	}
 
-	private setStatus(status: ModelStatus, progress = 0) {
+	private setStatus(
+		status: ModelStatus,
+		progress = 0,
+		downloads: Record<string, number> = {},
+	) {
 		this._status = status;
 		this._progress = progress;
+		this._downloads = downloads;
 		this.notify();
 	}
 
@@ -344,6 +404,7 @@ class LocalLLM {
 			status: this._status,
 			progress: this._progress,
 			error: this._error,
+			downloads: this._downloads,
 		};
 	}
 
@@ -417,15 +478,13 @@ class LocalLLM {
 			// Dispose previous pipeline
 			if (this._pipeline) this._pipeline.dispose();
 
-			// Create new strategy
-			this._pipeline =
-				this._config.modality === "multimodal"
-					? new MultimodalPipeline(this._config, this._device)
-					: new TextPipeline(this._config, this._device);
+			// Always use UniversalPipeline now
+			this._pipeline = new UniversalPipeline(this._config, this._device);
 
-			await this._pipeline.load((pct, status) => {
+			await this._pipeline.load((pct, status, downloads) => {
 				this._progress = pct;
 				this._status = status;
+				this._downloads = downloads;
 				onProgress?.(pct);
 				this.notify();
 			});
@@ -446,6 +505,7 @@ class LocalLLM {
 		}
 		this._status = "idle";
 		this._progress = 0;
+		this._downloads = {};
 		this.checkCache();
 		this.notify();
 	}

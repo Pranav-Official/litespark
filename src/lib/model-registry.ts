@@ -36,13 +36,7 @@ export interface ModelConfig {
 	size: string;
 	description: string;
 	modelClass: ModelClass;
-	dtype:
-		| DtypeValue
-		| {
-				embed_tokens: DtypeValue;
-				vision_encoder: DtypeValue;
-				decoder_model_merged: DtypeValue;
-		  };
+	dtype: DtypeValue | Record<string, DtypeValue>;
 	sampling: {
 		thinking: SamplingParams;
 		nonThinking: SamplingParams;
@@ -53,6 +47,9 @@ export interface ModelConfig {
 		customTags?: ThinkingTags;
 	};
 	modality: "text" | "multimodal";
+	pathMap?: Record<string, string>;
+	repoFiles?: string[];
+	architecture?: string;
 	isDefault?: number;
 }
 
@@ -61,6 +58,12 @@ export function parseModelConfig(row: any): ModelConfig {
 		...row,
 		modality: row.modality ?? "text",
 		dtype: typeof row.dtype === "string" ? JSON.parse(row.dtype) : row.dtype,
+		pathMap:
+			typeof row.pathMap === "string" ? JSON.parse(row.pathMap) : row.pathMap,
+		repoFiles:
+			typeof row.repoFiles === "string"
+				? JSON.parse(row.repoFiles)
+				: row.repoFiles,
 		sampling:
 			typeof row.sampling === "string"
 				? JSON.parse(row.sampling)

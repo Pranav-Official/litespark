@@ -33,6 +33,9 @@ export function useCreateModel() {
 				description: model.description,
 				modelClass: model.modelClass,
 				dtype: JSON.stringify(model.dtype),
+				pathMap: model.pathMap ? JSON.stringify(model.pathMap) : null,
+				repoFiles: model.repoFiles ? JSON.stringify(model.repoFiles) : null,
+				architecture: model.architecture ?? null,
 				sampling: JSON.stringify(model.sampling),
 				thinking: JSON.stringify(model.thinking),
 				modality: model.modality,
@@ -129,6 +132,8 @@ export function useLocalLLM() {
 			const m = availableModels.find((m) => m.id === targetId);
 
 			// 1. Clear cache
+			localStorage.removeItem(`path_map_${targetId}`);
+			localStorage.removeItem(`repo_files_${targetId}`);
 			if (targetId === savedModelId) {
 				await localLLM.delete();
 				await updateSetting.mutateAsync({

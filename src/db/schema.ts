@@ -36,6 +36,9 @@ export const localModels = pgTable("local_models", {
 	sampling: text().notNull(),
 	thinking: text().notNull(),
 	modality: text("modality").notNull().default("text"),
+	pathMap: text("path_map"),
+	repoFiles: text("repo_files"),
+	architecture: text("architecture"),
 	isDefault: integer("is_default").notNull().default(0),
 	createdAt: timestamp("created_at").defaultNow(),
 });
