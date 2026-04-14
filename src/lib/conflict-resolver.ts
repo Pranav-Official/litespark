@@ -10,6 +10,7 @@ export interface FileConflict {
 class ConflictResolver {
 	private queue: FileConflict[] = [];
 	private listeners: Set<(queue: FileConflict[]) => void> = new Set();
+	private pendingPromises: Record<string, Promise<string | null>> = {};
 
 	get currentQueue() {
 		return [...this.queue];
@@ -36,16 +37,12 @@ class ConflictResolver {
 		fileName: string,
 		originalUrl: string,
 	): Promise<string | null> {
-		// Prevent duplicates in queue
-		if (
-			this.queue.some((c) => c.modelId === modelId && c.fileName === fileName)
-		) {
-			// If already in queue, we just have to wait for the first one to resolve.
-			// This is tricky without a separate promise store, but let's just handle it.
-			return null;
+		const key = `${modelId}:${fileName}`;
+		if (key in this.pendingPromises) {
+			return this.pendingPromises[key];
 		}
 
-		return new Promise((resolve) => {
+		const promise = new Promise<string | null>((resolve) => {
 			this.queue.push({
 				modelId,
 				fileName,
@@ -54,6 +51,7 @@ class ConflictResolver {
 					this.queue = this.queue.filter(
 						(c) => !(c.modelId === modelId && c.fileName === fileName),
 					);
+					delete this.pendingPromises[key];
 					this.notify();
 					resolve(url);
 				},
@@ -64,6 +62,9 @@ class ConflictResolver {
 				duration: 10000,
 			});
 		});
+
+		this.pendingPromises[key] = promise;
+		return promise;
 	}
 
 	resolve(modelId: string, fileName: string, url: string | null) {

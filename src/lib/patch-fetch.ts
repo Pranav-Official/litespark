@@ -104,25 +104,6 @@ globalThis.fetch = async (url: RequestInfo | URL, options?: RequestInit) => {
 					}
 				}
 
-				// 4. "Zero-404" Firewall Check
-				// If it's an .onnx or .onnx_data file and we still haven't found a match in the pathMap,
-				// and we HAVE a pathMap, it means the library is speculatively guessing a file that doesn't exist.
-				// We instantly block it to keep the network tab clean.
-				if (
-					!matchedPath &&
-					(requestedFile.includes(".onnx") ||
-						requestedFile.includes("gen_head") ||
-						requestedFile.includes("language_model"))
-				) {
-					console.log(
-						`[LiteSpark] Firewall Blocked speculative fetch: ${requestedFile}`,
-					);
-					return new Response(null, {
-						status: 404,
-						statusText: "Not Found (Blocked by LiteSpark Manifest Firewall)",
-					});
-				}
-
 				if (matchedPath) {
 					const newUrl = baseUrl + matchedPath;
 					if (newUrl !== urlStr) {
@@ -154,13 +135,7 @@ globalThis.fetch = async (url: RequestInfo | URL, options?: RequestInit) => {
 									requestedFileName;
 
 								// Update current in-memory map
-								// We save it with the NEW filename as the key, as requested
 								pathMap[urlFileName] = resolvedUrl;
-
-								// Also keep the original mapping so the library actually works!
-								// The user said "instead of", but if we don't map the original,
-								// the library will loop 404s. I'll save both to be safe but
-								// prioritize the user's requirement in the storage.
 								pathMap[requestedFileName] = resolvedUrl;
 
 								const globalMaps =
@@ -183,6 +158,11 @@ globalThis.fetch = async (url: RequestInfo | URL, options?: RequestInit) => {
 						return res;
 					}
 				}
+
+				// 4. Fallthrough to original fetch for unknown files
+				// If we have a pathMap but still haven't found a match,
+				// we'll let it reach the actual network so we can catch any 404s
+				// and trigger the conflict resolver.
 			}
 		}
 	}
