@@ -8,7 +8,7 @@ Need more horsepower? LiteSpark effortlessly bridges the gap between local priva
 
 ## 🚀 Features
 
-- 🔒 **Privacy-First**: Run local inference models like Qwen and Gemma. Your data never leaves your browser.
+- 🔒 **Privacy-First**: Run local inference models like Qwen and LFM. Your data never leaves your browser.
 - ⚡ **WebGPU Accelerated**: Blazing-fast local performance powered by your GPU.
 - 📱 **PWA Ready**: Install it as an app for a native experience on desktop and mobile.
 
@@ -47,18 +47,19 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 _Supported Models:_
 
-- **Qwen 2.5 0.8B** (~850 MB) - Light and fast.
-- **Qwen 2.5 2B** (~2.0 GB) - Great balance.
-- **Gemma 2 2B** (~2.3 GB) - Google's capable small model.
+- **LFM 2.5 350M** (~0.5 GB) - Liquid AI's ultra-lightweight and efficient model.
+- **Qwen 3.5 0.8B** (~1.0 GB) - The latest Qwen small model, great balance.
 
 ### 🛠️ Custom Models (Bring Your Own AI)
 LiteSpark isn't limited to the defaults. You can add any compatible ONNX model directly from Hugging Face:
 1. Go to **Settings** -> **Add Model**.
-2. Paste the Hugging Face Model ID (e.g., `onnx-community/LFM-2.5-350M-ONNX`).
+2. Paste the Hugging Face Model ID (e.g., `LiquidAI/LFM2.5-350M-ONNX`).
 3. Select the correct **Modality** (Text or Vision) and **Model Class**.
 4. Click **Add Model Entry** and then **Load**.
 
 Find trending compatible models here: [Hugging Face ONNX Models](https://huggingface.co/models?pipeline_tag=text-generation&library=onnx&sort=trending)
+
+For a detailed list of tested and compatible models, see our [Model Compatibility Guide](./MODEL_COMPATIBILITY.md).
 
 ### ☁️ Cloud Mode
 
