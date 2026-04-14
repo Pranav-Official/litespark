@@ -9,13 +9,15 @@ import {
 	Loader2,
 	Trash2,
 	WifiOff,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { ConfirmationDialog } from "#/components/ui/confirmation-dialog";
 import { useCreateModel, useLocalLLM } from "#/hooks/use-local-llm";
 import { useActiveProvider, useUpdateSetting } from "#/hooks/use-settings";
+import { conflictResolver, type FileConflict } from "#/lib/conflict-resolver";
 import type { DtypeValue, ModelClass, ModelConfig } from "#/lib/model-registry";
 
 const QUANT_FALLBACKS: Record<string, string[]> = {
@@ -133,7 +135,17 @@ export default function SettingsPage() {
 	const [loadingModel, setLoadingModel] = useState(false);
 	const [unloadingModel, setUnloadingModel] = useState(false);
 	const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
-	const [loadError, setLoadError] = useState<string | null>(null);
+	const [deleteConfirm, setDeleteConfirm] = useState<{
+		isOpen: boolean;
+		modelId: string;
+		modelName: string;
+		isDefault: boolean;
+	}>({
+		isOpen: false,
+		modelId: "",
+		modelName: "",
+		isDefault: false,
+	});
 	const [isFp16Supported, setIsFp16Supported] = useState(true);
 
 	// New model form state
@@ -145,7 +157,7 @@ export default function SettingsPage() {
 				modelId: "",
 				name: "",
 				dtype: "q4f16",
-				modelClass: "Qwen3_5",
+				modelClass: "TextCausal",
 				modality: "text",
 				supportsThinking: false,
 				thinkingFormat: "qwen",
@@ -263,7 +275,32 @@ export default function SettingsPage() {
 					const cfgRes = await fetch(
 						`https://huggingface.co/${watchedModelId}/resolve/main/config.json`,
 					);
-					if (cfgRes.ok) {
+					if (!cfgRes.ok && cfgRes.status === 404) {
+						// Trigger resolver for missing config.json during scan
+						const resolvedUrl = await conflictResolver.add(
+							watchedModelId,
+							"config.json",
+							`https://huggingface.co/${watchedModelId}/resolve/main/config.json`,
+						);
+						if (resolvedUrl) {
+							const newCfgRes = await fetch(resolvedUrl);
+							if (newCfgRes.ok) {
+								const cfg = await newCfgRes.json();
+								architecture =
+									cfg.architectures?.[0] || cfg.model_type || "Unknown";
+								if (
+									cfg.model_type?.includes("vision") ||
+									cfg.model_type?.includes("vl") ||
+									architecture.toLowerCase().includes("vision") ||
+									architecture.toLowerCase().includes("vl") ||
+									data.tags?.includes("multimodal") ||
+									data.pipeline_tag === "image-text-to-text"
+								) {
+									modality = "multimodal";
+								}
+							}
+						}
+					} else if (cfgRes.ok) {
 						const cfg = await cfgRes.json();
 						architecture =
 							cfg.architectures?.[0] || cfg.model_type || "Unknown";
@@ -285,9 +322,31 @@ export default function SettingsPage() {
 
 			setDetectedArch(architecture);
 			setValue("modality", modality);
-			if (architecture.includes("Qwen")) setValue("modelClass", "Qwen3_5");
-			else if (architecture.includes("Gemma")) setValue("modelClass", "Gemma4");
-			else setValue("modelClass", "Other");
+
+			const archLower = architecture.toLowerCase();
+			const isTextCausal =
+				archLower.includes("qwen") ||
+				archLower.includes("llama") ||
+				archLower.includes("mistral") ||
+				archLower.includes("phi") ||
+				archLower.includes("starcoder");
+			const isVisionSeq =
+				archLower.includes("gemma") ||
+				archLower.includes("vision") ||
+				archLower.includes("llava") ||
+				archLower.includes("lfm") ||
+				archLower.includes("vl");
+			const isJanus = archLower.includes("janus");
+
+			if (isTextCausal && !isVisionSeq) setValue("modelClass", "TextCausal");
+			else if (isVisionSeq) setValue("modelClass", "VisionSeq");
+			else if (isJanus) setValue("modelClass", "Janus");
+			else {
+				setValue("modelClass", "Other");
+				toast.warning(
+					`Model architecture "${architecture}" might not be fully supported. You may need to create a custom adapter.`,
+				);
+			}
 
 			// 3. Process ONNX files
 			const onnxFiles = siblings
@@ -464,7 +523,7 @@ export default function SettingsPage() {
 			setShowAddForm(false);
 			reset();
 		} catch (err) {
-			alert(`Failed to add model: ${(err as Error).message}`);
+			toast.error(`Failed to add model: ${(err as Error).message}`);
 		}
 	};
 
@@ -493,13 +552,12 @@ export default function SettingsPage() {
 			await setActiveModel(modelId);
 		}
 		setLoadingModel(true);
-		setLoadError(null);
 		try {
 			await load((p) => {
 				if (p >= 100) setLoadingModel(false);
 			});
 		} catch (err) {
-			setLoadError((err as Error).message);
+			toast.error((err as Error).message);
 		} finally {
 			setLoadingModel(false);
 		}
@@ -514,19 +572,22 @@ export default function SettingsPage() {
 		}
 	};
 
-	const handleDeleteModel = async (
+	const handleDeleteModel = (
 		modelId: string,
 		modelName: string,
 		isDefault: boolean,
 	) => {
-		const message = isDefault
-			? `Are you sure you want to delete ${modelName} from your local cache? This will free up disk space, but you will need to download it again to use it.`
-			: `Are you sure you want to delete ${modelName}? This will remove it from your database and delete its local cache.`;
+		setDeleteConfirm({
+			isOpen: true,
+			modelId,
+			modelName,
+			isDefault,
+		});
+	};
 
-		if (!window.confirm(message)) {
-			return;
-		}
-
+	const executeDelete = async () => {
+		const { modelId } = deleteConfirm;
+		setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
 		setDeletingModelId(modelId);
 		try {
 			await deleteModel(modelId);
@@ -551,8 +612,64 @@ export default function SettingsPage() {
 		await setDevice(d);
 	};
 
+	const [conflicts, setConflicts] = useState<FileConflict[]>([]);
+	useEffect(() => {
+		return conflictResolver.subscribe(setConflicts);
+	}, []);
+
 	return (
 		<div className="flex flex-1 items-start justify-center overflow-y-auto px-4 py-8">
+			{/* Conflict Resolver Floating UI */}
+			{conflicts.length > 0 && (
+				<div className="fixed bottom-4 right-4 z-[100] w-80 space-y-3">
+					{conflicts.map((c) => (
+						<div
+							key={`${c.modelId}-${c.fileName}`}
+							className="rounded-xl border border-amber-800/50 bg-amber-950/90 p-4 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-4"
+						>
+							<div className="mb-2 flex items-center justify-between">
+								<h4 className="text-xs font-bold uppercase text-amber-200">
+									Missing File Detected
+								</h4>
+								<span className="text-[10px] text-amber-400/70">
+									{c.modelId.split("/").pop()}
+								</span>
+							</div>
+							<p className="mb-3 text-[10px] leading-relaxed text-amber-100/80">
+								The file <code className="text-amber-300">{c.fileName}</code>{" "}
+								was not found. Please provide an alternative URL.
+							</p>
+							<div className="flex gap-2">
+								<input
+									type="text"
+									placeholder="https://..."
+									autoFocus
+									className="flex-1 rounded-md border border-amber-700/50 bg-amber-900/50 px-2 py-1.5 text-[10px] text-white outline-none placeholder:text-amber-700"
+									onKeyDown={(e) => {
+										if (e.key === "Enter") {
+											conflictResolver.resolve(
+												c.modelId,
+												c.fileName,
+												(e.target as HTMLInputElement).value,
+											);
+										}
+									}}
+								/>
+								<button
+									type="button"
+									onClick={() =>
+										conflictResolver.resolve(c.modelId, c.fileName, null)
+									}
+									className="rounded-md bg-amber-800/50 px-2 py-1 text-[10px] font-medium text-amber-200 hover:bg-amber-700/50"
+								>
+									Skip
+								</button>
+							</div>
+						</div>
+					))}
+				</div>
+			)}
+
 			<div className="w-full max-w-md">
 				<div className="mb-8 flex items-center gap-3">
 					<button
@@ -575,19 +692,6 @@ export default function SettingsPage() {
 						<div className="flex rounded-lg border border-zinc-700 bg-zinc-800/50 p-1">
 							<button
 								type="button"
-								onClick={() => handleToggleMode("cloud")}
-								className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
-									!isLocal
-										? "bg-zinc-100 text-zinc-900 shadow-sm"
-										: "text-zinc-400 hover:text-zinc-200"
-								}`}
-								aria-pressed={!isLocal}
-							>
-								<WifiOff className="h-4 w-4" />
-								Cloud
-							</button>
-							<button
-								type="button"
 								onClick={() => handleToggleMode("local")}
 								className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
 									isLocal
@@ -598,6 +702,19 @@ export default function SettingsPage() {
 							>
 								<Cpu className="h-4 w-4" />
 								Local
+							</button>
+							<button
+								type="button"
+								onClick={() => handleToggleMode("cloud")}
+								className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
+									!isLocal
+										? "bg-zinc-100 text-zinc-900 shadow-sm"
+										: "text-zinc-400 hover:text-zinc-200"
+								}`}
+								aria-pressed={!isLocal}
+							>
+								<WifiOff className="h-4 w-4" />
+								Cloud
 							</button>
 						</div>
 					</fieldset>
@@ -638,16 +755,6 @@ export default function SettingsPage() {
 									</button>
 								</fieldset>
 							</div>
-
-							{loadError && (
-								<div
-									className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
-									role="alert"
-								>
-									<X className="h-3.5 w-3.5 shrink-0" />
-									<span className="flex-1 truncate">{loadError}</span>
-								</div>
-							)}
 
 							<div className="flex items-center justify-between">
 								<h3 className="text-sm font-medium text-zinc-300">
@@ -824,10 +931,15 @@ export default function SettingsPage() {
 												{...register("modelClass")}
 												className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
 											>
-												<option value="Qwen3_5">Qwen 3.5</option>
-												<option value="Gemma4">Gemma 4</option>
+												<option value="TextCausal">Standard Text</option>
+												<option value="VisionSeq">Standard Vision</option>
+												<option value="Janus">Janus</option>
 												<option value="Other">Other</option>
 											</select>
+											<p className="text-[10px] text-zinc-500 mt-1">
+												Supported: Qwen, Llama, Mistral, Phi, Starcoder, Gemma
+												Vision, Llava, LFM, Janus.
+											</p>
 										</div>
 									</div>
 									<div className="space-y-2">
@@ -1264,6 +1376,22 @@ export default function SettingsPage() {
 					)}
 				</div>
 			</div>
+
+			<ConfirmationDialog
+				isOpen={deleteConfirm.isOpen}
+				title={deleteConfirm.isDefault ? "Clear Cache" : "Delete Model"}
+				description={
+					deleteConfirm.isDefault
+						? `Are you sure you want to delete ${deleteConfirm.modelName} from your local cache? This will free up disk space, but you will need to download it again to use it.`
+						: `Are you sure you want to delete ${deleteConfirm.modelName}? This will remove it from your database and delete its local cache.`
+				}
+				onConfirm={executeDelete}
+				onCancel={() =>
+					setDeleteConfirm((prev) => ({ ...prev, isOpen: false }))
+				}
+				confirmLabel={deleteConfirm.isDefault ? "Clear Cache" : "Delete Model"}
+				variant="danger"
+			/>
 		</div>
 	);
 }

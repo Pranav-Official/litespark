@@ -112,7 +112,7 @@ export function useLocalLLM() {
 			await localLLM.load(onProgress);
 			await updateSetting.mutateAsync({
 				key: "local_model_status",
-				value: "loaded",
+				value: "ready",
 			});
 		},
 		[updateSetting],
@@ -166,7 +166,7 @@ export function useLocalLLM() {
 		[updateSetting, savedModelId, checkAllCaches, availableModels, queryClient],
 	);
 
-	const inferenceMode = settingsMap?.inference_mode ?? "cloud";
+	const inferenceMode = settingsMap?.inference_mode ?? "local";
 	const setInferenceMode = useCallback(
 		async (mode: "cloud" | "local") => {
 			await updateSetting.mutateAsync({

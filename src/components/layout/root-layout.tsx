@@ -50,7 +50,7 @@ export default function RootLayout() {
 				<Outlet />
 			</main>
 			<ReloadPrompt />
-			<Toaster theme="dark" />
+			<Toaster theme="dark" position="top-right" />
 		</div>
 	);
 }

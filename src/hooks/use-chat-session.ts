@@ -50,7 +50,7 @@ export function useChatSession(chatId: number | undefined) {
 	const { refetch: refetchChats } = useChats();
 	const { data: dbMessages } = useMessages(chatId);
 
-	const inferenceMode = settingsMap?.inference_mode ?? "cloud";
+	const inferenceMode = settingsMap?.inference_mode ?? "local";
 	const isLocal = inferenceMode === "local";
 
 	const modelConfig = localLLM.config;

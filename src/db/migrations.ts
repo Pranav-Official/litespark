@@ -84,84 +84,44 @@ export async function runMigrations(client: PGlite) {
 
 				const defaultModels = [
 					{
+						id: "LiquidAI/LFM2.5-350M-ONNX",
+						name: "LFM2.5-350M-ONNX",
+						displayName: "LFM2.5-350M-ONNX",
+						size: "~0.5 GB",
+						description: "LFM · q4 quantized · WebGPU accelerated",
+						modelClass: "TextCausal",
+						dtype: JSON.stringify("q4"),
+						sampling: JSON.stringify({
+							thinking: {
+								temperature: 1.0,
+								top_p: 0.95,
+								top_k: 64,
+								min_p: 0.0,
+								presence_penalty: 0.0,
+								repetition_penalty: 1.0,
+								max_new_tokens: 4096,
+							},
+							nonThinking: {
+								temperature: 1.0,
+								top_p: 0.95,
+								top_k: 64,
+								min_p: 0.0,
+								presence_penalty: 0.0,
+								repetition_penalty: 1.0,
+								max_new_tokens: 2048,
+							},
+						}),
+						thinking: JSON.stringify({ enabled: true, tagFormat: "qwen" }),
+						isDefault: 1,
+					},
+					{
 						id: "onnx-community/Qwen3.5-0.8B-ONNX",
-						name: "Qwen3.5 0.8B",
-						displayName: "Qwen3.5 0.8B",
-						size: "~850 MB",
-						description: "ONNX q4f16 quantized · WebGPU accelerated",
-						modelClass: "Qwen3_5",
-						dtype: JSON.stringify({
-							embed_tokens: "fp16",
-							vision_encoder: "fp16",
-							decoder_model_merged: "q4f16",
-						}),
-						sampling: JSON.stringify({
-							thinking: {
-								temperature: 1.0,
-								top_p: 0.95,
-								top_k: 20,
-								min_p: 0.0,
-								presence_penalty: 1.5,
-								repetition_penalty: 1.2,
-								max_new_tokens: 32768,
-							},
-							nonThinking: {
-								temperature: 1.0,
-								top_p: 1.0,
-								top_k: 20,
-								min_p: 0.0,
-								presence_penalty: 2.0,
-								repetition_penalty: 1.2,
-								max_new_tokens: 8192,
-							},
-						}),
-						thinking: JSON.stringify({ enabled: true, tagFormat: "qwen" }),
-						isDefault: 1,
-					},
-					{
-						id: "onnx-community/Qwen3.5-2B-ONNX",
-						name: "Qwen3.5 2B",
-						displayName: "Qwen3.5 2B",
-						size: "~2.0 GB",
-						description: "ONNX q4f16 quantized · WebGPU accelerated",
-						modelClass: "Qwen3_5",
-						dtype: JSON.stringify({
-							embed_tokens: "q4f16",
-							vision_encoder: "q4f16",
-							decoder_model_merged: "q4f16",
-						}),
-						sampling: JSON.stringify({
-							thinking: {
-								temperature: 1.0,
-								top_p: 0.95,
-								top_k: 20,
-								min_p: 0.0,
-								presence_penalty: 1.5,
-								repetition_penalty: 1.2,
-								max_new_tokens: 32768,
-							},
-							nonThinking: {
-								temperature: 1.0,
-								top_p: 1.0,
-								top_k: 20,
-								min_p: 0.0,
-								presence_penalty: 2.0,
-								repetition_penalty: 1.2,
-								max_new_tokens: 8192,
-							},
-						}),
-						thinking: JSON.stringify({ enabled: true, tagFormat: "qwen" }),
-						isDefault: 1,
-					},
-					{
-						id: "onnx-community/gemma-4-E2B-it-ONNX",
-						name: "Gemma 4 E2B",
-						displayName: "Gemma 4 E2B",
-						size: "~2.3 GB",
-						description:
-							"Google DeepMind · q4f16 quantized · WebGPU accelerated",
-						modelClass: "Gemma4",
-						dtype: JSON.stringify("q4f16"),
+						name: "Qwen3.5-0.8B-ONNX",
+						displayName: "Qwen3.5-0.8B-ONNX",
+						size: "~1.0 GB",
+						description: "Qwen · q4 quantized · WebGPU accelerated",
+						modelClass: "VisionSeq",
+						dtype: JSON.stringify("q4"),
 						sampling: JSON.stringify({
 							thinking: {
 								temperature: 1.0,
@@ -170,7 +130,7 @@ export async function runMigrations(client: PGlite) {
 								min_p: 0.0,
 								presence_penalty: 0.0,
 								repetition_penalty: 1.0,
-								max_new_tokens: 32768,
+								max_new_tokens: 4096,
 							},
 							nonThinking: {
 								temperature: 1.0,
@@ -179,12 +139,12 @@ export async function runMigrations(client: PGlite) {
 								min_p: 0.0,
 								presence_penalty: 0.0,
 								repetition_penalty: 1.0,
-								max_new_tokens: 8192,
+								max_new_tokens: 2048,
 							},
 						}),
-						thinking: JSON.stringify({ enabled: true, tagFormat: "gemma" }),
+						thinking: JSON.stringify({ enabled: true, tagFormat: "qwen" }),
 						isDefault: 1,
-					},
+					}
 				];
 
 				for (const m of defaultModels) {
@@ -241,6 +201,47 @@ export async function runMigrations(client: PGlite) {
 			up: async (pg: PGlite) => {
 				await pg.exec(
 					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS repo_files TEXT;",
+				);
+			},
+		},
+		{
+			name: "0008_update_model_classes",
+			up: async (pg: PGlite) => {
+				await pg.exec(
+					"UPDATE local_models SET model_class = 'TextCausal' WHERE model_class = 'Qwen3_5';",
+				);
+				await pg.exec(
+					"UPDATE local_models SET model_class = 'VisionSeq' WHERE model_class = 'Gemma4';",
+				);
+			},
+		},
+		{
+			name: "0009_fix_max_tokens",
+			up: async (pg: PGlite) => {
+				const models = await pg.query<{ id: string; sampling: string }>(
+					"SELECT id, sampling FROM local_models",
+				);
+				for (const m of models.rows) {
+					try {
+						const sampling = JSON.parse(m.sampling);
+						if (sampling.thinking) sampling.thinking.max_new_tokens = 4096;
+						if (sampling.nonThinking)
+							sampling.nonThinking.max_new_tokens = 2048;
+						await pg.query(
+							"UPDATE local_models SET sampling = $1 WHERE id = $2",
+							[JSON.stringify(sampling), m.id],
+						);
+					} catch (e) {
+						console.error(`[DB] Failed to update sampling for ${m.id}`, e);
+					}
+				}
+			},
+		},
+		{
+			name: "0010_add_chat_template_to_local_models",
+			up: async (pg: PGlite) => {
+				await pg.exec(
+					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS chat_template TEXT;",
 				);
 			},
 		},

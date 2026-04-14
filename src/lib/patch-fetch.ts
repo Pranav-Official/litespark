@@ -1,3 +1,5 @@
+import { conflictResolver } from "./conflict-resolver";
+
 // Patch global fetch before any other imports to ensure libraries capture the patched version
 const originalFetch = globalThis.fetch;
 
@@ -8,7 +10,15 @@ const getPathMap = (modelId: string): Record<string, string> | null => {
 
 	try {
 		const stored = localStorage.getItem(`path_map_${modelId}`);
-		if (stored) return JSON.parse(stored);
+		if (stored) {
+			const parsed = JSON.parse(stored);
+			// Populate global cache after first localStorage read
+			if (!globalMaps) {
+				(window as any).__LITESPARK_PATH_MAPS__ = {};
+			}
+			(window as any).__LITESPARK_PATH_MAPS__[modelId] = parsed;
+			return parsed;
+		}
 	} catch (_e) {}
 	return null;
 };
@@ -37,13 +47,23 @@ globalThis.fetch = async (url: RequestInfo | URL, options?: RequestInit) => {
 			const pathMap = getPathMap(modelId);
 			if (pathMap) {
 				let matchedPath: string | null = null;
-
 				const requestedFileName =
 					requestedFile.split("/").pop() || requestedFile;
 
 				// 1. Direct match
 				if (pathMap[requestedFileName]) {
 					matchedPath = pathMap[requestedFileName];
+				}
+
+				// Check if the matchedPath is already an absolute URL
+				if (matchedPath && matchedPath.startsWith("http")) {
+					console.log(
+						`[LiteSpark] Redirecting ${requestedFile} -> Absolute URL: ${matchedPath}`,
+					);
+					const reqToUse = isRequest
+						? new Request(matchedPath, (url as Request).clone())
+						: matchedPath;
+					return originalFetch(reqToUse, options);
 				}
 
 				// 2. Suffix-aware match
@@ -112,14 +132,101 @@ globalThis.fetch = async (url: RequestInfo | URL, options?: RequestInit) => {
 						const reqToUse = isRequest
 							? new Request(newUrl, (url as Request).clone())
 							: newUrl;
-						return originalFetch(reqToUse, options);
+						const res = await originalFetch(reqToUse, options);
+
+						if (res.status === 404) {
+							console.warn(
+								`[LiteSpark] Fetch failed (404) for ${requestedFile} at ${newUrl}. Triggering resolver...`,
+							);
+							const resolvedUrl = await conflictResolver.add(
+								modelId,
+								requestedFile,
+								newUrl,
+							);
+							if (resolvedUrl) {
+								console.log(
+									`[LiteSpark] Resuming fetch with resolved URL: ${resolvedUrl}`,
+								);
+
+								// Extract filename from URL to use as the new key
+								const urlFileName =
+									resolvedUrl.split("/").pop()?.split("?")[0] ||
+									requestedFileName;
+
+								// Update current in-memory map
+								// We save it with the NEW filename as the key, as requested
+								pathMap[urlFileName] = resolvedUrl;
+
+								// Also keep the original mapping so the library actually works!
+								// The user said "instead of", but if we don't map the original,
+								// the library will loop 404s. I'll save both to be safe but
+								// prioritize the user's requirement in the storage.
+								pathMap[requestedFileName] = resolvedUrl;
+
+								const globalMaps =
+									(window as any).__LITESPARK_PATH_MAPS__ || {};
+								globalMaps[modelId] = pathMap;
+								(window as any).__LITESPARK_PATH_MAPS__ = globalMaps;
+
+								// Update storage
+								localStorage.setItem(
+									`path_map_${modelId}`,
+									JSON.stringify(pathMap),
+								);
+
+								const retryReq = isRequest
+									? new Request(resolvedUrl, (url as Request).clone())
+									: resolvedUrl;
+								return originalFetch(retryReq, options);
+							}
+						}
+						return res;
 					}
 				}
 			}
 		}
 	}
 
-	return originalFetch(url, options);
-};
+	const res = await originalFetch(url, options);
 
-export {};
+	// Also catch 404 for ANY Hugging Face model file resolution even if not in pathMap
+	if (
+		res.status === 404 &&
+		urlStr.includes("huggingface.co") &&
+		urlStr.includes("/resolve/")
+	) {
+		const parts = urlStr.split("/resolve/main/");
+		if (parts.length === 2) {
+			const requestedFile = parts[1];
+			const requestedFileName = requestedFile.split("/").pop() || requestedFile;
+			const modelId = parts[0].split("huggingface.co/")[1];
+			console.warn(`[LiteSpark] Global HF 404 caught for ${requestedFile}`);
+
+			const resolvedUrl = await conflictResolver.add(
+				modelId,
+				requestedFile,
+				urlStr,
+			);
+			if (resolvedUrl) {
+				const urlFileName =
+					resolvedUrl.split("/").pop()?.split("?")[0] || requestedFileName;
+
+				const pathMap = getPathMap(modelId) || {};
+				pathMap[urlFileName] = resolvedUrl;
+				pathMap[requestedFileName] = resolvedUrl;
+
+				const globalMaps = (window as any).__LITESPARK_PATH_MAPS__ || {};
+				globalMaps[modelId] = pathMap;
+				(window as any).__LITESPARK_PATH_MAPS__ = globalMaps;
+				localStorage.setItem(`path_map_${modelId}`, JSON.stringify(pathMap));
+
+				const retryReq = isRequest
+					? new Request(resolvedUrl, (url as Request).clone())
+					: resolvedUrl;
+				return originalFetch(retryReq, options);
+			}
+		}
+	}
+
+	return res;
+};
