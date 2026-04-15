@@ -1,4 +1,4 @@
-import { Menu, MessageSquare, Settings, Trash2, X } from "lucide-react";
+import { Github, Menu, MessageSquare, Settings, Trash2, X } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useSidebar } from "#/context/sidebar-context";
 import { useChats, useCreateChat, useDeleteChat } from "#/hooks/use-chats";
@@ -100,6 +100,15 @@ export default function Sidebar() {
 			</nav>
 
 			<div className="border-t border-zinc-800 p-2">
+				<a
+					href="https://github.com/Pranav-Official/litespark"
+					target="_blank"
+					rel="noopener noreferrer"
+					className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+				>
+					<Github className="h-4 w-4" />
+					GitHub
+				</a>
 				<Link
 					to="/settings"
 					onClick={handleNavClick}
@@ -108,6 +117,7 @@ export default function Sidebar() {
 					<Settings className="h-4 w-4" />
 					Settings
 				</Link>
+				
 			</div>
 		</aside>
 	);
