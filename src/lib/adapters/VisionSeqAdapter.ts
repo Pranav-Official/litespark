@@ -63,22 +63,23 @@ export class VisionSeqAdapter extends BaseAdapter {
 	async prepareInputs(messages: Message[], options?: GenerateOptions) {
 		const prompt = await this.preparePrompt(messages, options);
 
-		const base64Images: string[] = [];
+		// Collect all image URLs in message order
+		const allImageUrls: string[] = [];
 		for (const msg of messages) {
 			if (Array.isArray(msg.content)) {
 				for (const part of msg.content) {
 					if (part.type === "image" && typeof part.image === "string") {
-						base64Images.push(part.image);
+						allImageUrls.push(part.image);
 					}
 				}
 			}
 		}
 
-		if (base64Images.length > 0) {
+		if (allImageUrls.length > 0) {
 			console.log(
-				`[VisionSeqAdapter] Preparing inputs with ${base64Images.length} images`,
+				`[VisionSeqAdapter] Preparing inputs with ${allImageUrls.length} images`,
 			);
-			const rawImages = await this.getRawImages(base64Images);
+			const rawImages = await this.getRawImages(allImageUrls);
 
 			if (typeof this.processor !== "function") {
 				throw new Error("Processor is not a function");

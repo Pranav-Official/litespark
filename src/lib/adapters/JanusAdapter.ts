@@ -35,6 +35,7 @@ export class JanusAdapter extends BaseAdapter {
 	}
 
 	async prepareInputs(messages: Message[], options?: GenerateOptions) {
+		// Janus uses <image_placeholder> text tokens for each image.
 		const formattedMessages = messages.map((msg) => {
 			if (typeof msg.content === "string") {
 				return { ...msg, content: [{ type: "text", text: msg.content }] };
@@ -69,19 +70,20 @@ export class JanusAdapter extends BaseAdapter {
 			prompt += startTag;
 		}
 
-		const base64Images: string[] = [];
+		// Collect all image URLs in the same order they appear in messages
+		const allImageUrls: string[] = [];
 		for (const msg of messages) {
 			if (Array.isArray(msg.content)) {
 				for (const part of msg.content) {
 					if (part.type === "image" && typeof part.image === "string") {
-						base64Images.push(part.image);
+						allImageUrls.push(part.image);
 					}
 				}
 			}
 		}
 
-		if (base64Images.length > 0) {
-			const rawImages = await this.getRawImages(base64Images);
+		if (allImageUrls.length > 0) {
+			const rawImages = await this.getRawImages(allImageUrls);
 
 			try {
 				let inputs: any;

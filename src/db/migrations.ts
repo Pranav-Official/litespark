@@ -144,7 +144,7 @@ export async function runMigrations(client: PGlite) {
 						}),
 						thinking: JSON.stringify({ enabled: true, tagFormat: "qwen" }),
 						isDefault: 1,
-					}
+					},
 				];
 
 				for (const m of defaultModels) {
@@ -242,6 +242,14 @@ export async function runMigrations(client: PGlite) {
 			up: async (pg: PGlite) => {
 				await pg.exec(
 					"ALTER TABLE local_models ADD COLUMN IF NOT EXISTS chat_template TEXT;",
+				);
+			},
+		},
+		{
+			name: "0011_add_attachments_to_messages",
+			up: async (pg: PGlite) => {
+				await pg.exec(
+					"ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments TEXT;",
 				);
 			},
 		},

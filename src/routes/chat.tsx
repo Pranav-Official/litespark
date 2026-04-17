@@ -8,6 +8,7 @@ import { useSidebar } from "#/context/sidebar-context";
 import { useChatSession } from "#/hooks/use-chat-session";
 import { useChats } from "#/hooks/use-chats";
 import { useLocalLLM } from "#/hooks/use-local-llm";
+import type { DocumentResult } from "#/lib/document-processor";
 
 export default function ChatPage() {
 	const { chatId } = useParams<{ chatId: string }>();
@@ -33,8 +34,9 @@ export default function ChatPage() {
 		content: string,
 		thinking?: boolean,
 		images?: string[],
+		documents?: DocumentResult[],
 	) => {
-		sendMessage(content, thinking, images);
+		sendMessage(content, thinking, images, documents);
 	};
 
 	const modelNotReady = isLocal && info.status !== "ready";

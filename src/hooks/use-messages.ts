@@ -35,6 +35,7 @@ export function useAddMessage() {
 			role,
 			content,
 			images,
+			attachments,
 			thinking,
 			model,
 			totalTokens,
@@ -44,6 +45,8 @@ export function useAddMessage() {
 			role: string;
 			content: string;
 			images?: string[];
+			/** Attachment metadata only (no content) – [{ name, type, size }] */
+			attachments?: Array<{ name: string; type: string; size: number }>;
 			thinking?: string;
 			model?: string;
 			totalTokens?: number;
@@ -57,6 +60,10 @@ export function useAddMessage() {
 					content,
 					images:
 						images && images.length > 0 ? JSON.stringify(images) : undefined,
+					attachments:
+						attachments && attachments.length > 0
+							? JSON.stringify(attachments)
+							: undefined,
 					thinking,
 					model,
 					totalTokens,
