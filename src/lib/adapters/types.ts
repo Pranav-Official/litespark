@@ -1,9 +1,34 @@
 import type { ModelConfig } from "../model-registry";
 
+// ---------------------------------------------------------------------------
+// Content part types
+// ---------------------------------------------------------------------------
+
+export interface ContentPartText {
+	type: "text";
+	text: string;
+}
+
+export interface ContentPartImage {
+	type: "image";
+	/** Base64 data-URL or object URL for the image */
+	image: string;
+}
+
+export type ContentPart = ContentPartText | ContentPartImage;
+
+// ---------------------------------------------------------------------------
+// Message
+// ---------------------------------------------------------------------------
+
 export interface Message {
 	role: string;
-	content: string | { type: string; text?: string; image?: string }[];
+	content: string | ContentPart[];
 }
+
+// ---------------------------------------------------------------------------
+// Adapter types
+// ---------------------------------------------------------------------------
 
 export type ModelStatus =
 	| "idle"

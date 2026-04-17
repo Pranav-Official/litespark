@@ -13,6 +13,7 @@ export const messages = pgTable("messages", {
 	role: text().notNull(),
 	content: text().notNull(),
 	images: text(),
+	attachments: text(), // JSON: [{ name: string, type: string, size: number }]
 	thinking: text(),
 	model: text(),
 	totalTokens: integer("total_tokens"),

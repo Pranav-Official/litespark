@@ -4,6 +4,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { streamText } from "ai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import type { DocumentResult } from "#/lib/document-processor";
 import { localLLM } from "#/lib/local-llm";
 import { useChats, useUpdateChatTitle } from "./use-chats";
 import { useAddMessage, useMessages } from "./use-messages";
@@ -76,6 +77,7 @@ export function useChatSession(chatId: number | undefined) {
 	const [optimisticUserMessage, setOptimisticUserMessage] = useState<{
 		content: string;
 		images?: string[];
+		attachments?: Array<{ name: string; type: string; size: number }>;
 	} | null>(null);
 
 	const parserRef = useRef(parser);
@@ -84,9 +86,19 @@ export function useChatSession(chatId: number | undefined) {
 	}, [parser]);
 
 	const sendMessage = useCallback(
-		async (content?: string, thinking?: boolean, images?: string[]) => {
+		async (
+			content?: string,
+			thinking?: boolean,
+			images?: string[],
+			documents?: DocumentResult[],
+		) => {
 			const messageContent = content || input;
-			if (!messageContent.trim() && (!images || images.length === 0)) return;
+			if (
+				!messageContent.trim() &&
+				(!images || images.length === 0) &&
+				(!documents || documents.length === 0)
+			)
+				return;
 			if (!chatId) return;
 			if (!isLocal && !apiKey) return;
 
@@ -95,24 +107,84 @@ export function useChatSession(chatId: number | undefined) {
 			parserRef.current.reset();
 
 			setInput("");
-			setOptimisticUserMessage({ content: messageContent.trim(), images });
+
+			// Build attachment metadata for DB storage (metadata only, no content)
+			const attachmentMeta = documents?.map((d) => ({
+				name: d.filename,
+				type: d.mimeType,
+				size: d.size,
+			}));
+
+			setOptimisticUserMessage({
+				content: messageContent.trim(),
+				images,
+				attachments: attachmentMeta,
+			});
 
 			try {
-				// 1. Save user message to DB
-				// useAddMessage updates the query cache instantly on success
+				// 1a. Save each document as a role:"document" message before the user message
+				for (const doc of documents ?? []) {
+					await addMessage.mutateAsync({
+						chatId: chatId as number,
+						role: "document",
+						content: `[Document: ${doc.filename}]\n${doc.text ?? ""}`,
+						images:
+							supportsVision && doc.images && doc.images.length > 0
+								? doc.images
+								: undefined,
+						attachments: [
+							{ name: doc.filename, type: doc.mimeType, size: doc.size },
+						],
+					});
+				}
+
+				// 1b. Save user message to DB
 				await addMessage.mutateAsync({
 					chatId: chatId as number,
 					role: "user",
 					content: messageContent.trim(),
 					images,
+					attachments: attachmentMeta,
 				});
 
 				// Clear optimistic state now that it's in dbMessages
 				setOptimisticUserMessage(null);
 
-				// Use latest dbMessages for history + new user message
+				// Build inline document entries for this turn (not yet in dbMessages cache)
+				const docHistoryMessages = (documents ?? []).map((doc) => ({
+					role: "user" as const,
+					content:
+						supportsVision && doc.images && doc.images.length > 0
+							? [
+									...doc.images.map((img) => ({ type: "image", image: img })),
+									{
+										type: "text",
+										text: `[Document: ${doc.filename}]\n${doc.text ?? ""}`,
+									},
+								]
+							: `[Document: ${doc.filename}]\n${doc.text ?? ""}`,
+				}));
+
+				// Use latest dbMessages for history + inline doc entries + new user message
 				const history = [
 					...(dbMessages ?? []).map((m) => {
+						if (m.role === "document") {
+							// Map persisted document messages into user turns for the model
+							const hasImages =
+								supportsVision && m.images && JSON.parse(m.images).length > 0;
+							return {
+								role: "user" as const,
+								content: hasImages
+									? [
+											...JSON.parse(m.images as string).map((img: string) => ({
+												type: "image",
+												image: img,
+											})),
+											{ type: "text", text: m.content },
+										]
+									: m.content,
+							};
+						}
 						const hasImages = m.images && JSON.parse(m.images).length > 0;
 						return {
 							role: m.role as "user" | "assistant" | "system",
@@ -128,6 +200,7 @@ export function useChatSession(chatId: number | undefined) {
 									: m.content,
 						};
 					}),
+					...docHistoryMessages,
 					{
 						role: "user" as const,
 						content:
@@ -191,7 +264,6 @@ export function useChatSession(chatId: number | undefined) {
 				}
 
 				// 3. Save assistant message to DB
-				console.log("FINAL CONTENT TO SAVE:", finalContent);
 				await addMessage.mutateAsync({
 					chatId: chatId as number,
 					role: "assistant",
@@ -278,9 +350,16 @@ export function useChatSession(chatId: number | undefined) {
 	// Format persisted messages for display
 	const persistedMessages = (dbMessages ?? []).map((m) => ({
 		id: String(m.id),
-		role: m.role as "user" | "assistant",
+		role: m.role as "user" | "assistant" | "document",
 		content: m.content,
 		images: m.images ? JSON.parse(m.images) : undefined,
+		attachments: m.attachments
+			? (JSON.parse(m.attachments) as Array<{
+					name: string;
+					type: string;
+					size: number;
+				}>)
+			: undefined,
 		thinking: m.thinking || undefined,
 		model: m.model || undefined,
 		totalTokens: m.totalTokens || undefined,
@@ -297,6 +376,7 @@ export function useChatSession(chatId: number | undefined) {
 						role: "user" as const,
 						content: optimisticUserMessage.content,
 						images: optimisticUserMessage.images,
+						attachments: optimisticUserMessage.attachments,
 					},
 				]
 			: []),
