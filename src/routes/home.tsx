@@ -15,7 +15,11 @@ export default function HomePage() {
 		<div className="flex-1 overflow-y-auto">
 			<div className="flex min-h-full flex-col items-center justify-center p-6 py-12 text-center md:py-20">
 				<div className="mx-auto mb-8 flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-zinc-800/50 ring-1 ring-zinc-700/50 shadow-inner">
-					<Sparkles className="h-10 w-10 text-zinc-100" />
+					<img
+						src="/litespark.svg"
+						alt="LiteSpark Logo"
+						className="h-12 w-12"
+					/>
 				</div>
 
 				<h1 className="mb-4 text-4xl font-bold tracking-tight text-zinc-100">
