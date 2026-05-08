@@ -3,79 +3,21 @@ import {
 	Check,
 	ChevronDown,
 	Cpu,
-	Download,
 	Eye,
 	EyeOff,
 	Loader2,
 	Trash2,
 	WifiOff,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ConfirmationDialog } from "#/components/ui/confirmation-dialog";
+import { ModelFileSelector } from "#/components/ui/model-file-selector";
 import { useCreateModel, useLocalLLM } from "#/hooks/use-local-llm";
 import { useActiveProvider, useUpdateSetting } from "#/hooks/use-settings";
-import { conflictResolver, type FileConflict } from "#/lib/conflict-resolver";
 import type { DtypeValue, ModelClass, ModelConfig } from "#/lib/model-registry";
-
-const QUANT_FALLBACKS: Record<string, string[]> = {
-	q4: ["q4", "q4f16", "int8", "q8", "fp16", "fp32"],
-	q4f16: ["q4f16", "q4", "int8", "q8", "fp16", "fp32"],
-	q8: ["q8", "int8", "q4f16", "q4", "fp16", "fp32"],
-	int8: ["int8", "q8", "q4f16", "q4", "fp16", "fp32"],
-	fp16: ["fp16", "fp32", "q8", "q4f16", "q4"],
-	fp32: ["fp32", "fp16", "q8", "q4f16", "q4"],
-	auto: ["auto"],
-};
-
-const resolveDtypeFallback = (
-	desiredDtype: string,
-	parts: Record<string, string[]>,
-	isFp16Supported: boolean,
-): Record<string, DtypeValue> => {
-	const resolved: Record<string, DtypeValue> = {};
-	let fallbacks = QUANT_FALLBACKS[desiredDtype] || [
-		desiredDtype,
-		"fp32",
-		"fp16",
-		"q4",
-		"q8",
-	];
-
-	// Filter out fp16-dependent dtypes if not supported
-	if (!isFp16Supported) {
-		fallbacks = fallbacks.filter((f) => f !== "fp16" && f !== "q4f16");
-	}
-
-	for (const [part, availableQuants] of Object.entries(parts)) {
-		let selectedQuant = "fp32";
-
-		for (const fb of fallbacks) {
-			if (fb === "auto") {
-				const hasQ4f16 = isFp16Supported && availableQuants.includes("q4f16");
-				const hasFp16 = isFp16Supported && availableQuants.includes("fp16");
-
-				selectedQuant = hasQ4f16
-					? "q4f16"
-					: availableQuants.includes("q4")
-						? "q4"
-						: hasFp16
-							? "fp16"
-							: availableQuants.includes("q8")
-								? "q8"
-								: "fp32";
-				break;
-			} else if (availableQuants.includes(fb)) {
-				selectedQuant = fb;
-				break;
-			}
-		}
-		resolved[part] = selectedQuant as DtypeValue;
-	}
-	return resolved;
-};
 
 const PROVIDERS = [
 	{ id: "openai", name: "OpenAI", defaultModel: "gpt-4o" },
@@ -150,6 +92,13 @@ export default function SettingsPage() {
 
 	// New model form state
 	const [showAddForm, setShowAddForm] = useState(false);
+	const [scannedRepoFiles, setScannedRepoFiles] = useState<string[] | null>(
+		null,
+	);
+	const [scannedPathMap, setScannedPathMap] = useState<Record<
+		string,
+		string
+	> | null>(null);
 
 	const { register, handleSubmit, watch, setValue, reset, control } =
 		useForm<AddModelFormData>({
@@ -157,10 +106,10 @@ export default function SettingsPage() {
 				modelId: "",
 				name: "",
 				dtype: "q4f16",
-				modelClass: "TextCausal",
-				modality: "text",
-				supportsThinking: false,
-				thinkingFormat: "qwen",
+				modelClass: "Gemma4",
+				modality: "multimodal",
+				supportsThinking: true,
+				thinkingFormat: "gemma",
 				customStartTag: "<think>",
 				customEndTag: "</think>",
 				customSuffix: "",
@@ -173,36 +122,6 @@ export default function SettingsPage() {
 	const watchedThinkingFormat = watch("thinkingFormat");
 
 	const createModel = useCreateModel();
-
-	const [isFetchingFiles, setIsFetchingFiles] = useState(false);
-	const [fetchedParts, setFetchedParts] = useState<Record<
-		string,
-		string[]
-	> | null>(null);
-	const [fetchMessage, setFetchMessage] = useState<{
-		text: string;
-		type: "error" | "success";
-	} | null>(null);
-	const [detectedArch, setDetectedArch] = useState<string | null>(null);
-	const [rawPathMap, setRawPathMap] = useState<Record<
-		string,
-		Record<string, string>
-	> | null>(null);
-	const [repoFiles, setRepoFiles] = useState<string[] | null>(null);
-
-	const resetScanState = useCallback(() => {
-		setFetchedParts(null);
-		setFetchMessage(null);
-		setDetectedArch(null);
-		setRawPathMap(null);
-		setRepoFiles(null);
-	}, []);
-
-	// Reset scan state when ID changes
-	useEffect(() => {
-		void watchedModelId;
-		resetScanState();
-	}, [watchedModelId, resetScanState]);
 
 	useEffect(() => {
 		const checkFp16 = async () => {
@@ -233,273 +152,33 @@ export default function SettingsPage() {
 		}
 	}, [isFp16Supported, watchedDtype, setValue]);
 
-	const handleFetchFiles = async () => {
-		if (!watchedModelId) {
-			setFetchMessage({
-				text: "Please enter a model ID first",
-				type: "error",
-			});
-			return;
-		}
-
-		setIsFetchingFiles(true);
-		setFetchMessage(null);
-		setFetchedParts(null);
-		setDetectedArch(null);
-		setRawPathMap(null);
-
-		try {
-			// 1. Fetch Model Config and Siblings in parallel
-			const response = await fetch(
-				`https://huggingface.co/api/models/${watchedModelId}`,
-			);
-			if (!response.ok) {
-				throw new Error(`Failed to fetch model info: ${response.statusText}`);
-			}
-
-			const data = await response.json();
-			const siblings = data.siblings as { rfilename: string }[];
-
-			if (!siblings) {
-				throw new Error("No files found for this model");
-			}
-
-			// 2. Detect Architecture and Modality
-			let architecture = "Unknown";
-			let modality: "text" | "multimodal" = "text";
-
-			// Try to find config.json to detect arch
-			const configSibling = siblings.find((s) => s.rfilename === "config.json");
-			if (configSibling) {
-				try {
-					const cfgRes = await fetch(
-						`https://huggingface.co/${watchedModelId}/resolve/main/config.json`,
-					);
-					if (!cfgRes.ok && cfgRes.status === 404) {
-						// Trigger resolver for missing config.json during scan
-						const resolvedUrl = await conflictResolver.add(
-							watchedModelId,
-							"config.json",
-							`https://huggingface.co/${watchedModelId}/resolve/main/config.json`,
-						);
-						if (resolvedUrl) {
-							const newCfgRes = await fetch(resolvedUrl);
-							if (newCfgRes.ok) {
-								const cfg = await newCfgRes.json();
-								architecture =
-									cfg.architectures?.[0] || cfg.model_type || "Unknown";
-								if (
-									cfg.model_type?.includes("vision") ||
-									cfg.model_type?.includes("vl") ||
-									architecture.toLowerCase().includes("vision") ||
-									architecture.toLowerCase().includes("vl") ||
-									data.tags?.includes("multimodal") ||
-									data.pipeline_tag === "image-text-to-text"
-								) {
-									modality = "multimodal";
-								}
-							}
-						}
-					} else if (cfgRes.ok) {
-						const cfg = await cfgRes.json();
-						architecture =
-							cfg.architectures?.[0] || cfg.model_type || "Unknown";
-						if (
-							cfg.model_type?.includes("vision") ||
-							cfg.model_type?.includes("vl") ||
-							architecture.toLowerCase().includes("vision") ||
-							architecture.toLowerCase().includes("vl") ||
-							data.tags?.includes("multimodal") ||
-							data.pipeline_tag === "image-text-to-text"
-						) {
-							modality = "multimodal";
-						}
-					}
-				} catch (e) {
-					console.warn("Failed to parse config.json", e);
-				}
-			}
-
-			setDetectedArch(architecture);
-			setValue("modality", modality);
-
-			const archLower = architecture.toLowerCase();
-			const isTextCausal =
-				archLower.includes("qwen") ||
-				archLower.includes("llama") ||
-				archLower.includes("mistral") ||
-				archLower.includes("phi") ||
-				archLower.includes("starcoder");
-			const isVisionSeq =
-				archLower.includes("gemma") ||
-				archLower.includes("vision") ||
-				archLower.includes("llava") ||
-				archLower.includes("lfm") ||
-				archLower.includes("vl");
-			const isJanus = archLower.includes("janus");
-
-			if (isTextCausal && !isVisionSeq) setValue("modelClass", "TextCausal");
-			else if (isVisionSeq) setValue("modelClass", "VisionSeq");
-			else if (isJanus) setValue("modelClass", "Janus");
-			else {
-				setValue("modelClass", "Other");
-				toast.warning(
-					`Model architecture "${architecture}" might not be fully supported. You may need to create a custom adapter.`,
-				);
-			}
-
-			// 3. Process ONNX files
-			const onnxFiles = siblings
-				.map((s) => s.rfilename)
-				.filter((f) => f.endsWith(".onnx") && !f.includes("data"));
-
-			if (onnxFiles.length === 0) {
-				throw new Error("No .onnx files found in this repository");
-			}
-
-			const partsInfo: Record<string, Set<string>> = {};
-			const localRawPathMap: Record<string, Record<string, string>> = {};
-
-			for (const file of onnxFiles) {
-				const fileName = file.split("/").pop() || file;
-				const nameWithoutExt = fileName.replace(".onnx", "");
-
-				const match = nameWithoutExt.match(
-					/_(q4|q4f16|q8|int8|uint8|fp16|fp32|bnb4)$/,
-				);
-
-				let partName = nameWithoutExt;
-				let quant = "fp32";
-
-				if (match) {
-					quant = match[1];
-					partName = nameWithoutExt.slice(0, -match[0].length);
-				}
-
-				if (!localRawPathMap[partName]) {
-					partsInfo[partName] = new Set();
-					localRawPathMap[partName] = {};
-				}
-				partsInfo[partName].add(quant);
-				localRawPathMap[partName][quant] = file;
-			}
-
-			const formattedParts: Record<string, string[]> = {};
-			for (const [part, quants] of Object.entries(partsInfo)) {
-				formattedParts[part] = Array.from(quants);
-			}
-
-			setFetchedParts(formattedParts);
-			setRawPathMap(localRawPathMap);
-
-			// Update newModelDtype to the best available for the main part
-			const mainPartKey =
-				formattedParts.decoder_model_merged ||
-				formattedParts.decoder_model ||
-				formattedParts.model
-					? Object.keys(formattedParts).find(
-							(k) =>
-								k === "decoder_model_merged" ||
-								k === "decoder_model" ||
-								k === "model",
-						)
-					: Object.keys(formattedParts)[0];
-
-			const mainPart = formattedParts[mainPartKey || ""];
-
-			if (mainPart && mainPart.length > 0) {
-				const filtered = mainPart.filter(
-					(q) => isFp16Supported || (q !== "fp16" && q !== "q4f16"),
-				);
-				const toCheck = filtered.length > 0 ? filtered : mainPart;
-				const best =
-					toCheck.find((q) => q === "q4f16") ||
-					toCheck.find((q) => q === "q4") ||
-					toCheck.find((q) => q === "q8") ||
-					toCheck[0];
-				setValue("dtype", best as DtypeValue);
-			}
-
-			setFetchMessage({
-				text: `Successfully scanned ${architecture} model.`,
-				type: "success",
-			});
-
-			if (!watch("name") && data.modelId) {
-				setValue("name", data.modelId.split("/").pop() || "");
-			}
-		} catch (err) {
-			setFetchMessage({ text: (err as Error).message, type: "error" });
-		} finally {
-			setIsFetchingFiles(false);
-		}
-	};
-
-	const selectedPathMap = useMemo(() => {
-		if (!fetchedParts || !rawPathMap) return null;
-		const resolved = resolveDtypeFallback(
-			watchedDtype,
-			fetchedParts,
-			isFp16Supported,
-		);
-		const finalPaths: Record<string, string> = {};
-
-		for (const [part, quant] of Object.entries(resolved)) {
-			const path = rawPathMap[part]?.[quant as string];
-			if (path) {
-				// We store mapping as: Logical FileName -> Repo Path
-				// e.g. "decoder_model_merged.onnx" -> "onnx/decoder_model_merged_q8.onnx"
-				finalPaths[`${part}.onnx`] = path;
-			}
-		}
-		return finalPaths;
-	}, [watchedDtype, fetchedParts, rawPathMap, isFp16Supported]);
-
 	const onAddModel = async (data: AddModelFormData) => {
-		// Only allow save if scan completed
-		if (!selectedPathMap) {
-			setFetchMessage({ text: "Please scan the model first", type: "error" });
-			return;
-		}
-
-		let resolvedDtype: ModelConfig["dtype"] = data.dtype;
-		if (fetchedParts && Object.keys(fetchedParts).length > 1) {
-			resolvedDtype = resolveDtypeFallback(
-				data.dtype,
-				fetchedParts,
-				isFp16Supported,
-			) as any;
-		}
-
 		const model: ModelConfig = {
 			id: data.modelId,
 			name: data.name || data.modelId.split("/").pop() || data.modelId,
 			displayName: data.name || data.modelId.split("/").pop() || data.modelId,
 			size: "Unknown",
-			description: "Custom ONNX model",
+			description: `${data.modelClass} model`,
 			modelClass: data.modelClass,
-			architecture: detectedArch || undefined,
-			pathMap: selectedPathMap || undefined,
-			repoFiles: repoFiles || undefined,
-			dtype: resolvedDtype,
+			dtype: data.dtype,
 			sampling: {
 				thinking: {
 					temperature: 1.0,
 					top_p: 0.95,
-					top_k: 20,
+					top_k: 64,
 					min_p: 0.0,
-					presence_penalty: 1.5,
-					repetition_penalty: 1.2,
-					max_new_tokens: 32768,
+					presence_penalty: 0.0,
+					repetition_penalty: 1.0,
+					max_new_tokens: 4096,
 				},
 				nonThinking: {
 					temperature: 1.0,
 					top_p: 1.0,
 					top_k: 20,
 					min_p: 0.0,
-					presence_penalty: 2.0,
-					repetition_penalty: 1.2,
-					max_new_tokens: 8192,
+					presence_penalty: 0.0,
+					repetition_penalty: 1.0,
+					max_new_tokens: 2048,
 				},
 			},
 			thinking: {
@@ -516,11 +195,15 @@ export default function SettingsPage() {
 			},
 			modality: data.modality,
 			isDefault: 0,
+			repoFiles: scannedRepoFiles ?? undefined,
+			pathMap: scannedPathMap ?? undefined,
 		};
 
 		try {
 			await createModel.mutateAsync(model);
 			setShowAddForm(false);
+			setScannedRepoFiles(null);
+			setScannedPathMap(null);
 			reset();
 		} catch (err) {
 			toast.error(`Failed to add model: ${(err as Error).message}`);
@@ -603,7 +286,6 @@ export default function SettingsPage() {
 	const handleToggleAddForm = () => {
 		if (showAddForm) {
 			reset();
-			resetScanState();
 		}
 		setShowAddForm(!showAddForm);
 	};
@@ -612,64 +294,8 @@ export default function SettingsPage() {
 		await setDevice(d);
 	};
 
-	const [conflicts, setConflicts] = useState<FileConflict[]>([]);
-	useEffect(() => {
-		return conflictResolver.subscribe(setConflicts);
-	}, []);
-
 	return (
 		<div className="flex flex-1 items-start justify-center overflow-y-auto px-4 py-8">
-			{/* Conflict Resolver Floating UI */}
-			{conflicts.length > 0 && (
-				<div className="fixed bottom-4 right-4 z-[100] w-80 space-y-3">
-					{conflicts.map((c) => (
-						<div
-							key={`${c.modelId}-${c.fileName}`}
-							className="rounded-xl border border-amber-800/50 bg-amber-950/90 p-4 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-4"
-						>
-							<div className="mb-2 flex items-center justify-between">
-								<h4 className="text-xs font-bold uppercase text-amber-200">
-									Missing File Detected
-								</h4>
-								<span className="text-[10px] text-amber-400/70">
-									{c.modelId.split("/").pop()}
-								</span>
-							</div>
-							<p className="mb-3 text-[10px] leading-relaxed text-amber-100/80">
-								The file <code className="text-amber-300">{c.fileName}</code>{" "}
-								was not found. Please provide an alternative URL.
-							</p>
-							<div className="flex gap-2">
-								<input
-									type="text"
-									placeholder="https://..."
-									autoFocus
-									className="flex-1 rounded-md border border-amber-700/50 bg-amber-900/50 px-2 py-1.5 text-[10px] text-white outline-none placeholder:text-amber-700"
-									onKeyDown={(e) => {
-										if (e.key === "Enter") {
-											conflictResolver.resolve(
-												c.modelId,
-												c.fileName,
-												(e.target as HTMLInputElement).value,
-											);
-										}
-									}}
-								/>
-								<button
-									type="button"
-									onClick={() =>
-										conflictResolver.resolve(c.modelId, c.fileName, null)
-									}
-									className="rounded-md bg-amber-800/50 px-2 py-1 text-[10px] font-medium text-amber-200 hover:bg-amber-700/50"
-								>
-									Skip
-								</button>
-							</div>
-						</div>
-					))}
-				</div>
-			)}
-
 			<div className="w-full max-w-md">
 				<div className="mb-8 flex items-center gap-3">
 					<button
@@ -781,69 +407,24 @@ export default function SettingsPage() {
 										>
 											Hugging Face Model ID
 										</label>
-										<div className="flex gap-2">
-											<input
-												id="model-id"
-												type="text"
-												required
-												{...register("modelId")}
-												placeholder="onnx-community/..."
-												className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
-											/>
-											<button
-												type="button"
-												onClick={handleFetchFiles}
-												disabled={isFetchingFiles || !watchedModelId}
-												className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
-											>
-												{isFetchingFiles ? (
-													<Loader2 className="h-4 w-4 animate-spin" />
-												) : (
-													<Download className="h-4 w-4" />
-												)}
-												Fetch Files
-											</button>
-										</div>
-										{fetchMessage && (
-											<p
-												className={`text-[10px] ${
-													fetchMessage.type === "success"
-														? "text-emerald-400"
-														: "text-red-400"
-												}`}
-											>
-												{fetchMessage.text}
-											</p>
-										)}
-
-										{selectedPathMap && (
-											<div className="mt-2 space-y-1 rounded-lg bg-zinc-950/50 p-2">
-												<div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
-													<p className="text-[9px] font-bold uppercase text-zinc-500">
-														Files Selected Preview
-													</p>
-													{detectedArch && (
-														<span className="text-[8px] text-blue-400 font-medium">
-															{detectedArch}
-														</span>
-													)}
-												</div>
-												{Object.entries(selectedPathMap).map(
-													([logical, repo]) => (
-														<div
-															key={logical}
-															className="flex items-center justify-between text-[10px]"
-														>
-															<span className="text-zinc-400">{logical}</span>
-															<span className="truncate text-zinc-600 pl-4">
-																{repo}
-															</span>
-														</div>
-													),
-												)}
-											</div>
-										)}
+										<input
+											id="model-id"
+											type="text"
+											required
+											{...register("modelId")}
+											placeholder="onnx-community/..."
+											className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
+										/>
 									</div>
+									{watchedModelId && (
+										<ModelFileSelector
+											modelId={watchedModelId}
+											onSelect={(files, pathMap) => {
+												setScannedRepoFiles(files);
+												setScannedPathMap(pathMap);
+											}}
+										/>
+									)}
 									<div className="space-y-2">
 										<label
 											htmlFor="model-name"
@@ -876,45 +457,17 @@ export default function SettingsPage() {
 														{...field}
 														className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
 													>
-														{fetchedParts ? (
-															<>
-																{/* Show options from the identified decoder part */}
-																{(
-																	fetchedParts.decoder_model_merged ||
-																	fetchedParts.decoder_model ||
-																	fetchedParts.model ||
-																	Object.values(fetchedParts).sort(
-																		(a, b) => b.length - a.length,
-																	)[0] ||
-																	[]
-																)
-																	.filter(
-																		(q) =>
-																			isFp16Supported ||
-																			(q !== "fp16" && q !== "q4f16"),
-																	)
-																	.map((q) => (
-																		<option key={q} value={q}>
-																			{q}
-																		</option>
-																	))}
-																<option value="auto">auto</option>
-															</>
-														) : (
-															<>
-																{isFp16Supported && (
-																	<option value="q4f16">
-																		q4f16 (Recommended)
-																	</option>
-																)}
-																{isFp16Supported && (
-																	<option value="fp16">fp16</option>
-																)}
-																<option value="q8">q8</option>
-																<option value="q4">q4</option>
-																<option value="auto">auto</option>
-															</>
+														{isFp16Supported && (
+															<option value="q4f16">
+																q4f16 (Recommended)
+															</option>
 														)}
+														{isFp16Supported && (
+															<option value="fp16">fp16</option>
+														)}
+														<option value="q8">q8</option>
+														<option value="q4">q4</option>
+														<option value="auto">auto</option>
 													</select>
 												)}
 											/>
@@ -931,15 +484,11 @@ export default function SettingsPage() {
 												{...register("modelClass")}
 												className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
 											>
-												<option value="TextCausal">Standard Text</option>
-												<option value="VisionSeq">Standard Vision</option>
-												<option value="Janus">Janus</option>
+												<option value="Gemma4">Gemma 4</option>
+												<option value="Qwen3">Qwen3.5</option>
+												<option value="LiquidLFM">Liquid LFM</option>
 												<option value="Other">Other</option>
 											</select>
-											<p className="text-[10px] text-zinc-500 mt-1">
-												Supported: Qwen, Llama, Mistral, Phi, Starcoder, Gemma
-												Vision, Llava, LFM, Janus.
-											</p>
 										</div>
 									</div>
 									<div className="space-y-2">
@@ -954,8 +503,8 @@ export default function SettingsPage() {
 											{...register("modality")}
 											className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
 										>
+											<option value="multimodal">Vision + Audio + Text</option>
 											<option value="text">Text Only</option>
-											<option value="multimodal">Vision + Text</option>
 										</select>
 									</div>
 									<div className="space-y-3">
@@ -987,10 +536,10 @@ export default function SettingsPage() {
 													{...register("thinkingFormat")}
 													className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-600"
 												>
-													<option value="qwen">Qwen (&lt;think&gt;)</option>
 													<option value="gemma">
 														Gemma (&lt;|channel&gt;thought)
 													</option>
+													<option value="qwen">Qwen (&lt;think&gt;)</option>
 													<option value="custom">Custom Tags</option>
 												</select>
 											</div>
@@ -1049,7 +598,7 @@ export default function SettingsPage() {
 									</div>
 									<button
 										type="submit"
-										disabled={createModel.isPending || !selectedPathMap}
+										disabled={createModel.isPending}
 										className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
 									>
 										{createModel.isPending ? "Adding..." : "Add Model Entry"}

@@ -176,7 +176,7 @@ export abstract class BaseAdapter implements IModelAdapter {
 		const tokenizer = this.processor.tokenizer || this.processor;
 		const streamer = new TextStreamer(tokenizer, {
 			skip_prompt: true,
-			skip_special_tokens: true,
+			skip_special_tokens: false,
 			callback_function: (text: string) => {
 				if (signal.aborted) return;
 				onChunk(text);

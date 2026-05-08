@@ -99,7 +99,7 @@ export default defineConfig({
 		},
 	},
 	optimizeDeps: {
-		exclude: ["@electric-sql/pglite"],
+		exclude: ["@electric-sql/pglite", "onnxruntime-web"],
 	},
 	build: {
 		rollupOptions: {

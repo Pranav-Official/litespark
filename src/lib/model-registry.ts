@@ -9,7 +9,7 @@ export type DtypeValue =
 	| "q4"
 	| "bnb4";
 
-export type ModelClass = "TextCausal" | "VisionSeq" | "Janus" | "Other";
+export type ModelClass = "Gemma4" | "Qwen3" | "LiquidLFM" | "Other";
 
 export interface ThinkingTags {
 	start: string;
