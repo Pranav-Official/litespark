@@ -85,3 +85,25 @@ Switch to **Cloud** mode in Settings, drop in your API key, and access models li
 | `bun run build`   | Generate production build        |
 | `bun run preview` | Preview production build         |
 | `bun run check`   | Run Biome linting and formatting |
+
+
+## 🧠 Development Journey: The "Browser Inference" Challenge
+
+LiteSpark began as an experiment to create a zero-installation, complete AI toolkit. This project navigated the complex landscape of web-based runtimes, leading to several key architectural insights:
+
+### 1. The Runtime Evolution
+
+During development, we explored several paths for local execution:
+
+* **Wllama (llama.cpp):** Excellent for GGUF portability but initially lacked WebGPU support, leading to high CPU bottlenecks.
+* **LiteRT (formerly TensorFlow.js):** Evaluated during Google’s rebranding phase; however, the lack of stable JS bindings for the newer Gemma families made it a non-starter.
+* **ONNX + Transformers.js (Our Choice):** Selected for its ecosystem breadth, allowing for future integration of CNNs, audio, and vision models beyond just LLMs.
+
+### 2. The "Unified Interface" Problem
+
+Building a "Universal Adapter" for browser models proved significantly more difficult than expected due to:
+
+* **Inconsistent Naming:** Models frequently use non-standard file naming for encoders and processors (e.g., `vision_encoder_q4.onnx` vs `vision_q4.onnx`).
+* **Quantization Chaos:** Mixed-precision requirements (where a vision encoder is `q4` but the decoder is `fp16`) often lead to browser-specific crashes if `fp16` isn't supported.
+* **Implementation Divergence:** Every model family requires a unique loader (e.g., `Gemma4ForConditionalGeneration` vs `MultiModalityCausalLM`), making a single "plug-and-play" architecture highly complex.
+
