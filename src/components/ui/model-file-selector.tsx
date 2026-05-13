@@ -1,12 +1,13 @@
 import { ChevronDown, Loader2, Search, AlertCircle, Check } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
-  type FileGroup,
-  type HFRepoFile,
-  type QuantSelection,
+  generateDtypeRecord,
   generatePathMap,
   generateRepoFiles,
   scanOnnxFiles,
+  type FileGroup,
+  type HFRepoFile,
+  type QuantSelection,
 } from "#/lib/hf-repo";
 
 interface ModelFileSelectorProps {
@@ -14,6 +15,7 @@ interface ModelFileSelectorProps {
   onSelect: (
     repoFiles: string[] | null,
     pathMap: Record<string, string> | null,
+    dtypeRecord: Record<string, string> | null,
   ) => void;
 }
 
@@ -46,12 +48,13 @@ export function ModelFileSelector({
 
       const repoFiles = generateRepoFiles(result.groups, defaultSelections);
       const pathMap = generatePathMap(repoFiles);
-      onSelect(repoFiles, pathMap);
+      const dtypeRecord = generateDtypeRecord(defaultSelections, result.groups);
+      onSelect(repoFiles, pathMap, dtypeRecord);
       setStatus("scanned");
     } catch (err) {
       setError((err as Error).message);
       setStatus("error");
-      onSelect(null, null);
+      onSelect(null, null, null);
     }
   }, [modelId, onSelect]);
 
@@ -63,7 +66,8 @@ export function ModelFileSelector({
       setSelections(newSelections);
       const repoFiles = generateRepoFiles(groups, newSelections);
       const pathMap = generatePathMap(repoFiles);
-      onSelect(repoFiles, pathMap);
+      const dtypeRecord = generateDtypeRecord(newSelections, groups);
+      onSelect(repoFiles, pathMap, dtypeRecord);
     },
     [groups, selections, onSelect],
   );

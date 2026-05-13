@@ -33,17 +33,23 @@ export async function scanOnnxFiles(
     const baseName = name.split(".onnx")[0];
 
     let component: string | null = null;
-    let quant: string;
+    let quant = "fp32";
 
-    if (baseName.startsWith("embed_tokens")) {
+    if (baseName === "embed_tokens" || baseName.startsWith("embed_tokens_")) {
       component = "embed_tokens";
-      quant = baseName.replace("embed_tokens_", "") || "fp32";
-    } else if (baseName.startsWith("embed_images")) {
+      quant = baseName.replace("embed_tokens_", "") === baseName ? "fp32" : baseName.replace("embed_tokens_", "");
+    } else if (baseName === "embed_images" || baseName.startsWith("embed_images_")) {
       component = "embed_images";
-      quant = baseName.replace("embed_images_", "") || "fp32";
-    } else if (baseName.startsWith("decoder")) {
+      quant = baseName.replace("embed_images_", "") === baseName ? "fp32" : baseName.replace("embed_images_", "");
+    } else if (baseName === "vision_encoder" || baseName.startsWith("vision_encoder_")) {
+      component = "embed_images";
+      quant = baseName.replace("vision_encoder_", "") === baseName ? "fp32" : baseName.replace("vision_encoder_", "");
+    } else if (baseName === "decoder_model_merged" || baseName.startsWith("decoder_model_merged_")) {
       component = "decoder";
-      quant = baseName.replace("decoder_", "") || "fp32";
+      quant = baseName.replace("decoder_model_merged_", "") === baseName ? "fp32" : baseName.replace("decoder_model_merged_", "");
+    } else if (baseName === "decoder" || baseName.startsWith("decoder_")) {
+      component = "decoder";
+      quant = baseName.replace("decoder_", "") === baseName ? "fp32" : baseName.replace("decoder_", "");
     } else {
       continue;
     }
@@ -93,4 +99,27 @@ export function generatePathMap(repoFiles: string[]): Record<string, string> {
     pathMap[fileName] = file;
   }
   return pathMap;
+}
+
+export function generateDtypeRecord(
+  selections: QuantSelection[],
+  groups: FileGroup[],
+): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const sel of selections) {
+    const group = groups.find(
+      (g) => g.component === sel.component && g.quant === sel.quant,
+    );
+    if (!group || group.files.length === 0) continue;
+    const firstName =
+      group.files.find((f) => f.path.endsWith(".onnx"))?.path.split("/").pop() ||
+      group.files[0].path.split("/").pop() ||
+      "";
+    const baseName = firstName.split(".onnx")[0];
+    const componentName = baseName.endsWith("_" + sel.quant)
+      ? baseName.slice(0, -(sel.quant.length + 1))
+      : baseName;
+    record[componentName] = sel.quant;
+  }
+  return record;
 }

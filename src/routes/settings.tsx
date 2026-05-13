@@ -99,6 +99,10 @@ export default function SettingsPage() {
 		string,
 		string
 	> | null>(null);
+	const [scannedDtypeRecord, setScannedDtypeRecord] = useState<Record<
+		string,
+		string
+	> | null>(null);
 
 	const { register, handleSubmit, watch, setValue, reset, control } =
 		useForm<AddModelFormData>({
@@ -160,7 +164,7 @@ export default function SettingsPage() {
 			size: "Unknown",
 			description: `${data.modelClass} model`,
 			modelClass: data.modelClass,
-			dtype: data.dtype,
+			dtype: (scannedDtypeRecord ?? data.dtype) as any,
 			sampling: {
 				thinking: {
 					temperature: 1.0,
@@ -204,6 +208,7 @@ export default function SettingsPage() {
 			setShowAddForm(false);
 			setScannedRepoFiles(null);
 			setScannedPathMap(null);
+			setScannedDtypeRecord(null);
 			reset();
 		} catch (err) {
 			toast.error(`Failed to add model: ${(err as Error).message}`);
@@ -419,9 +424,10 @@ export default function SettingsPage() {
 									{watchedModelId && (
 										<ModelFileSelector
 											modelId={watchedModelId}
-											onSelect={(files, pathMap) => {
+											onSelect={(files, pathMap, dtypeRecord) => {
 												setScannedRepoFiles(files);
 												setScannedPathMap(pathMap);
+												setScannedDtypeRecord(dtypeRecord);
 											}}
 										/>
 									)}
